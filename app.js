@@ -1,6 +1,8 @@
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const HTML_NS = 'http://www.w3.org/1999/xhtml';
 const STORAGE_KEY = 'svg_ppt_like_state_v1';
 const SVG_IMPORT_PADDING_RATIO = 0;
+const TEXT_EDIT_DRAG_THRESHOLD = 4;
 
 const state = {
   slides: [createEmptySlide('スライド 1')],
@@ -8,6 +10,9 @@ const state = {
   selectedElementId: null,
   pointerState: null,
 };
+
+let activeTextEditor = null;
+let textMeasureContext = null;
 
 const dom = {
   slideList: document.getElementById('slide-list'),
@@ -1030,7 +1035,95 @@ function getPointerPosition(event) {
   };
 }
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function getTextMeasureContext() {
+  if (!textMeasureContext) {
+    const canvas = document.createElement('canvas');
+    textMeasureContext = canvas.getContext('2d');
+  }
+  return textMeasureContext;
+}
+
+function buildTextFontDescription(element) {
+  return [
+    element?.fontStyle || 'normal',
+    element?.fontWeight || 'normal',
+    `${element?.fontSize || 32}px`,
+    element?.fontFamily || 'Arial, sans-serif',
+  ].join(' ');
+}
+
+function getTextOffsetForLine(line, targetX, ctx) {
+  const width = targetX <= 0 ? 0 : targetX;
+  if (!line) return 0;
+  if (width === 0) return 0;
+
+  let left = 0;
+  let right = line.length;
+  while (left < right) {
+    const mid = (left + right) >> 1;
+    const measured = ctx.measureText(line.slice(0, mid)).width;
+    if (measured < width) {
+      left = mid + 1;
+    } else {
+      right = mid;
+    }
+  }
+  if (left > 0 && ctx.measureText(line.slice(0, left)).width > width) {
+    const before = ctx.measureText(line.slice(0, left - 1)).width;
+    return (width - before) < (ctx.measureText(line.slice(0, left)).width - width) ? left - 1 : left;
+  }
+  if (left > 0 && left < line.length) {
+    const at = ctx.measureText(line.slice(0, left)).width;
+    const prev = ctx.measureText(line.slice(0, left - 1)).width;
+    return (width - prev) <= (at - width) ? left : left - 1;
+  }
+  return left;
+}
+
+function getTextCaretOffsetFromPoint(element, point) {
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+    return (element.text || '').length;
+  }
+
+  const fontSize = Number(element.fontSize || 32);
+  const lineHeight = Math.max(16, Math.round(fontSize * 1.2));
+  const lines = (element.text || '').split('\n');
+  const textAnchor = element.textAnchor || 'start';
+  const width = Math.max(1, element.width || estimateTextBoxMetrics(element.text, fontSize).width);
+
+  let x = point.x - element.x;
+  const y = point.y - (element.y + fontSize * 0.25);
+  const rawLine = Math.floor(y / lineHeight);
+  const lineIndex = clamp(rawLine, 0, lines.length - 1);
+
+  if (textAnchor === 'middle') {
+    x -= width / 2;
+  } else if (textAnchor === 'end') {
+    x -= width;
+  }
+
+  const lineText = lines[lineIndex] || '';
+  const ctx = getTextMeasureContext();
+  if (!ctx) return element.text.length;
+  ctx.font = buildTextFontDescription(element);
+
+  const clampedX = Math.max(0, x);
+  const localOffset = getTextOffsetForLine(lineText, clampedX, ctx);
+
+  let offset = 0;
+  for (let i = 0; i < lineIndex; i += 1) {
+    const line = lines[i] || '';
+    offset += line.length + 1;
+  }
+  return clamp(offset + localOffset, 0, element.text.length);
+}
+
 function render() {
+  closeActiveTextEditor({ commit: true, rerender: false });
   renderSlideList();
   renderCanvas();
   renderProperties();
@@ -1187,7 +1280,10 @@ function renderElement(el) {
   }
 
   g.addEventListener('pointerdown', (event) => onElementPointerDown(event, el.id));
-  g.addEventListener('dblclick', () => onElementDoubleClick(el.id));
+  g.addEventListener('dblclick', (event) => {
+    event.stopPropagation();
+    onElementDoubleClick(el.id);
+  });
   dom.canvas.appendChild(g);
 }
 
@@ -1248,15 +1344,170 @@ function getElementBounds(el) {
   };
 }
 
+function estimateTextBoxMetrics(text, fontSize = 32) {
+  const content = (text || '').replace(/\n/g, ' ');
+  const length = Math.max(1, content.length);
+  return {
+    width: Math.max(40, Math.round(length * Math.max(6, fontSize * 0.62))),
+    height: Math.max(16, Math.round(fontSize + 12)),
+  };
+}
+
+function closeActiveTextEditor({ commit = true, rerender = true } = {}) {
+  if (!activeTextEditor) return;
+
+  const editor = activeTextEditor;
+  activeTextEditor = null;
+
+  const slide = currentSlide();
+  const target = slide.elements.find((item) => item.id === editor.elementId);
+  if (editor.textElement) {
+    editor.textElement.setAttribute('visibility', 'visible');
+  }
+
+  if (editor.foreignObject && editor.foreignObject.parentElement) {
+    editor.foreignObject.parentElement.removeChild(editor.foreignObject);
+  }
+
+  if (commit && target && target.type === 'text' && editor.textarea) {
+    target.text = editor.textarea.value;
+  }
+
+  if (rerender) render();
+}
+
+function openTextEditorForElement(elementId, point = null) {
+  const slide = currentSlide();
+  const element = slide.elements.find((item) => item.id === elementId);
+  if (!element || element.type !== 'text') return;
+
+  if (activeTextEditor && activeTextEditor.elementId === elementId) {
+    if (activeTextEditor.textarea) activeTextEditor.textarea.focus();
+    return;
+  }
+
+  if (activeTextEditor) {
+    closeActiveTextEditor({ commit: true, rerender: false });
+  }
+
+  const group = dom.canvas.querySelector(`[data-element-id="${elementId}"]`);
+  if (!group) return;
+  const textElement = group.querySelector('text');
+  if (textElement) textElement.setAttribute('visibility', 'hidden');
+
+  const width = Math.max(1, Number(element.width) || 1);
+  const initialHeight = Math.max(1, Number(element.height) || 1);
+
+  const foreignObject = document.createElementNS(SVG_NS, 'foreignObject');
+  foreignObject.setAttribute('x', element.x);
+  foreignObject.setAttribute('y', element.y);
+  foreignObject.setAttribute('width', width);
+  foreignObject.setAttribute('height', initialHeight);
+  foreignObject.setAttribute('data-inline-text-editor', '1');
+
+  const host = document.createElementNS(HTML_NS, 'div');
+  host.style.width = '100%';
+  host.style.height = '100%';
+
+  const textarea = document.createElementNS(HTML_NS, 'textarea');
+  textarea.value = element.text || '';
+  textarea.rows = 1;
+  textarea.setAttribute('aria-label', 'テキストを直接編集');
+  textarea.className = 'inline-textarea';
+  textarea.style.cssText = [
+    'width:100%;',
+    'height:100%;',
+    'margin:0;',
+    'padding:6px 8px;',
+    'border:2px solid var(--accent-primary);',
+    'border-radius:6px;',
+    'box-sizing:border-box;',
+    'background:rgba(255,255,255,0.98);',
+    `color:${element.fill || '#111827'};`,
+    `font-size:${element.fontSize || 32}px;`,
+    `font-family:${element.fontFamily || 'Arial, sans-serif'};`,
+    `font-weight:${element.fontWeight || 'normal'};`,
+    `font-style:${element.fontStyle || 'normal'};`,
+    'line-height:1.2;',
+    'white-space:pre-wrap;',
+    'resize:none;',
+    'outline:none;',
+    'overflow:auto;',
+    'pointer-events:auto;',
+  ].join('');
+
+  textarea.addEventListener('pointerdown', (event) => {
+    event.stopPropagation();
+  });
+
+  textarea.addEventListener('keydown', (event) => {
+    event.stopPropagation();
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeActiveTextEditor({ commit: false, rerender: false });
+      render();
+      return;
+    }
+
+    if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      event.preventDefault();
+      closeActiveTextEditor({ commit: true, rerender: true });
+    }
+  });
+
+  textarea.addEventListener('blur', () => {
+    closeActiveTextEditor({ commit: true, rerender: true });
+  });
+
+  host.appendChild(textarea);
+  foreignObject.appendChild(host);
+  dom.canvas.appendChild(foreignObject);
+
+  activeTextEditor = {
+    elementId,
+    element,
+    foreignObject,
+    textElement,
+    textarea,
+    initialHeight,
+  };
+  state.selectedElementId = elementId;
+  renderProperties();
+
+  textarea.focus();
+  const caret = getTextCaretOffsetFromPoint(element, point);
+  textarea.setSelectionRange(caret, caret);
+}
+
 function onElementPointerDown(event, elementId) {
   if (event.button === 2) return;
   event.preventDefault();
+
+  if (activeTextEditor) {
+    closeActiveTextEditor({ commit: true, rerender: false });
+  }
 
   const slide = currentSlide();
   const element = slide.elements.find((item) => item.id === elementId);
   if (!element) return;
 
   state.selectedElementId = elementId;
+
+  if (element.type === 'text') {
+    const start = getPointerPosition(event);
+    state.pointerState = {
+      mode: 'edit-intent',
+      elementId,
+      pointerId: event.pointerId,
+      start,
+      x: element.x,
+      y: element.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    render();
+    return;
+  }
+
   state.pointerState = {
     mode: 'move',
     elementId,
@@ -1273,6 +1524,9 @@ function onElementPointerDown(event, elementId) {
 function onHandlePointerDown(event, elementId, handle) {
   event.preventDefault();
   event.stopPropagation();
+  if (activeTextEditor) {
+    closeActiveTextEditor({ commit: true, rerender: false });
+  }
 
   const slide = currentSlide();
   const element = slide.elements.find((item) => item.id === elementId);
@@ -1297,14 +1551,7 @@ function onHandlePointerDown(event, elementId, handle) {
 }
 
 function onElementDoubleClick(elementId) {
-  const slide = currentSlide();
-  const element = slide.elements.find((item) => item.id === elementId);
-  if (!element || element.type !== 'text') return;
-
-  const value = prompt('テキストを編集してください', element.text || '');
-  if (value === null) return;
-  element.text = value;
-  render();
+  openTextEditorForElement(elementId);
 }
 
 function onPointerMove(event) {
@@ -1315,6 +1562,24 @@ function onPointerMove(event) {
   if (!element) return;
 
   const p = getPointerPosition(event);
+  if (state.pointerState.mode === 'edit-intent') {
+    const movedX = Math.abs(p.x - state.pointerState.start.x);
+    const movedY = Math.abs(p.y - state.pointerState.start.y);
+    if (movedX > TEXT_EDIT_DRAG_THRESHOLD || movedY > TEXT_EDIT_DRAG_THRESHOLD) {
+      state.pointerState = {
+        mode: 'move',
+        elementId: state.pointerState.elementId,
+        pointerId: state.pointerState.pointerId,
+        start: p,
+        x: element.x,
+        y: element.y,
+      };
+      render();
+      return;
+    }
+    return;
+  }
+
   const dx = p.x - state.pointerState.start.x;
   const dy = p.y - state.pointerState.start.y;
 
@@ -1372,8 +1637,16 @@ function onPointerMove(event) {
   }
 }
 
-function onPointerUp() {
+function onPointerUp(event) {
   if (!state.pointerState) return;
+
+  if (state.pointerState.mode === 'edit-intent') {
+    const { elementId } = state.pointerState;
+    state.pointerState = null;
+    openTextEditorForElement(elementId, event ? getPointerPosition(event) : null);
+    return;
+  }
+
   state.pointerState = null;
   saveLocal();
 }
@@ -1511,6 +1784,7 @@ function setZOrder(direction) {
 function renderProperties() {
   const slide = currentSlide();
   const item = slide.elements.find((item) => item.id === state.selectedElementId);
+  const editing = activeTextEditor ? slide.elements.find((e) => e.id === activeTextEditor.elementId) : null;
 
   dom.selectedLabel.value = item ? `${item.type.toUpperCase()}` : '';
 
@@ -1548,6 +1822,11 @@ function renderProperties() {
   dom.propFill.value = item.fill || '#111827';
   dom.propStroke.value = item.stroke || '#0f2f56';
   dom.propFontSize.value = String(item.fontSize || 32);
+  if (editing && editing.id === item.id) {
+    dom.propText.value = activeTextEditor?.textarea?.value || '';
+    dom.propText.disabled = true;
+    return;
+  }
   dom.propText.value = item.text || '';
 }
 
@@ -1724,21 +2003,43 @@ function setupEvents() {
   dom.sendBack.addEventListener('click', () => setZOrder(-1));
 
   dom.resetState.addEventListener('click', resetState);
-  dom.exportJSON.addEventListener('click', exportJSON);
+  dom.exportJSON.addEventListener('click', () => {
+    if (activeTextEditor) {
+      closeActiveTextEditor({ commit: true, rerender: false });
+    }
+    exportJSON();
+  });
   dom.importJSONButton.addEventListener('click', () => {
+    if (activeTextEditor) {
+      closeActiveTextEditor({ commit: true, rerender: false });
+    }
     dom.importJSON.click();
   });
   dom.importSVG.addEventListener('change', (event) => {
+    if (activeTextEditor) {
+      closeActiveTextEditor({ commit: true, rerender: false });
+    }
     const file = event.target.files?.[0];
     if (!file) return;
     importSVGFromInput(file);
     event.target.value = '';
   });
   dom.importSVGButton.addEventListener('click', () => {
+    if (activeTextEditor) {
+      closeActiveTextEditor({ commit: true, rerender: false });
+    }
     dom.importSVG.click();
   });
-  dom.exportSVG.addEventListener('click', exportSVG);
+  dom.exportSVG.addEventListener('click', () => {
+    if (activeTextEditor) {
+      closeActiveTextEditor({ commit: true, rerender: false });
+    }
+    exportSVG();
+  });
   dom.importJSON.addEventListener('change', (event) => {
+    if (activeTextEditor) {
+      closeActiveTextEditor({ commit: true, rerender: false });
+    }
     const file = event.target.files?.[0];
     if (!file) return;
     importJSONFromInput(file);
@@ -1758,9 +2059,21 @@ function setupEvents() {
   window.addEventListener('pointermove', onPointerMove);
 
   window.addEventListener('keydown', (event) => {
+    if (activeTextEditor && event.key === 'Enter') {
+      const targetTag = document.activeElement?.tagName?.toLowerCase();
+      if (targetTag === 'input' || targetTag === 'textarea') return;
+      closeActiveTextEditor({ commit: true, rerender: false });
+      return;
+    }
+
     if (event.key === 'Delete' || event.key === 'Backspace') {
       const targetTag = document.activeElement?.tagName?.toLowerCase();
       if (targetTag === 'input' || targetTag === 'textarea') return;
+      if (activeTextEditor) {
+        closeActiveTextEditor({ commit: true, rerender: false });
+        return;
+      }
+
       deleteElement();
     }
   });

@@ -487,6 +487,22 @@ input[type="color"]::-webkit-color-swatch {
   transition: filter var(--transition-fast);
 }
 
+.inline-textarea {
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.2;
+  color: var(--text-primary);
+  border: 2px solid var(--accent-primary);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.98);
+  color: #111827;
+  outline: none;
+  resize: none;
+  overflow: auto;
+}
+
 .canvas-element:hover {
   filter: brightness(1.05);
 }
