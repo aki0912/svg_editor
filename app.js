@@ -479,6 +479,59 @@ function isReferencePaint(value) {
   return typeof value === 'string' && /url\(\s*#[^)]+\)/i.test(value);
 }
 
+function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
+  const allChildren = Array.from(node.children || []);
+  if (!allChildren.length || !allChildren.every((item) => item.tagName && item.tagName.toLowerCase() === 'tspan')) {
+    return null;
+  }
+
+  const baseX = parseNumber(getNodeStyleValue(node, 'x', 0, svgRoot), 0);
+  const baseY = parseNumber(getNodeStyleValue(node, 'y', 0, svgRoot), 0);
+  const baseFontSize = parseNumber(getNodeStyleValue(node, 'font-size', 18, svgRoot), 18);
+  const baseFontFamily = getNodeStyleValue(node, 'font-family', 'Arial, sans-serif', svgRoot);
+  const baseFill = getNodeStyleValue(node, 'fill', '#111827', svgRoot);
+
+  const elements = [];
+  let cursorY = baseY;
+  let lineIndex = 0;
+
+  for (const span of allChildren) {
+    const text = (span.textContent || '').trim();
+    if (!text) continue;
+
+    const spanX = parseNumber(span.getAttribute('x'), baseX);
+    const spanYAttr = span.getAttribute('y');
+    const spanDY = parseNumber(span.getAttribute('dy'), 0);
+    const spanFontSize = parseNumber(getNodeStyleValue(span, 'font-size', baseFontSize, svgRoot), baseFontSize);
+    const fontFamily = getNodeStyleValue(span, 'font-family', baseFontFamily, svgRoot);
+    const fill = getNodeStyleValue(span, 'fill', baseFill, svgRoot);
+    const stroke = getNodeStyleValue(span, 'stroke', 'none', svgRoot);
+    const strokeWidth = parseNumber(getNodeStyleValue(span, 'stroke-width', 0, svgRoot), 0);
+
+    if (lineIndex > 0) cursorY += spanDY;
+    if (lineIndex === 0 && spanYAttr === null && spanDY !== 0) cursorY = baseY + spanDY;
+    if (spanYAttr !== null) cursorY = parseNumber(spanYAttr, cursorY);
+
+    elements.push({
+      type: 'text',
+      x: spanX + transformOffset.x,
+      y: cursorY + transformOffset.y - spanFontSize,
+      width: Math.max(24, text.length * spanFontSize * 0.65),
+      height: spanFontSize + 14,
+      text,
+      fontSize: spanFontSize,
+      fontFamily,
+      fill,
+      stroke,
+      strokeWidth,
+    });
+
+    lineIndex += 1;
+  }
+
+  return elements.length ? elements : null;
+}
+
 function hasUnsupportedVisualEffect(node, svgRoot) {
   const style = parseStyleMap(node);
   const unsupportedAttrKeys = ['filter', 'clip-path', 'mask'];
@@ -612,6 +665,12 @@ function parseSVGElements(svgRoot) {
 
     if (tag === 'text') {
       if (hasElementChildren(node) && node.children.length > 0) {
+        const textLines = parseTSpanAsTextLines(node, svgRoot, transformOffset);
+        if (textLines) {
+          parsed.push(...textLines);
+          continue;
+        }
+
         const box = getNodeBBox(node);
         const x = box ? box.x + transformOffset.x : parseNumber(node.getAttribute('x'), 0) + transformOffset.x;
         const fontSize = parseNumber(getNodeStyleValue(node, 'font-size', 18, svgRoot), 18);
