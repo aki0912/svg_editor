@@ -6,6 +6,10 @@
   --text: #eaf0ff;
   --muted: #9db3d8;
   --accent: #4ea5ff;
+  --import-bg: #15803d;
+  --import-bg-hover: #166534;
+  --export-bg: #0369a1;
+  --export-bg-hover: #0284c7;
 }
 
 * {
@@ -22,15 +26,17 @@ body {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: minmax(280px, 320px) 1fr;
   height: 100vh;
 }
 
 .left {
   padding: 12px;
+  width: 100%;
   background: linear-gradient(180deg, var(--panel), var(--panel-2));
   border-right: 1px solid var(--line);
   overflow: auto;
+  overflow-x: hidden;
 }
 
 h1 {
@@ -143,16 +149,60 @@ button:disabled {
 }
 
 .actions-row-inline {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(64px, auto) minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
+  align-items: center;
 }
 
 .actions-label {
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.action-btn {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid transparent;
+  color: #ffffff;
+  font-weight: 600;
+  padding: 7px 8px;
+  font-size: 12px;
+  text-align: center;
+  white-space: normal;
+  word-break: keep-all;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+
+.action-import {
+  background: var(--import-bg);
+  border-color: #22c55e;
+}
+
+.action-import:hover {
+  background: var(--import-bg-hover);
+}
+
+.action-export {
+  background: var(--export-bg);
+  border-color: #7dd3fc;
+}
+
+.action-export:hover {
+  background: var(--export-bg-hover);
+}
+
+.action-import:hover,
+.action-export:hover {
+  filter: brightness(1.08);
+}
+
+#export-json {
+  font-size: 11px;
+  padding: 7px 6px;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
 }
 
 .actions input[type='file'] {

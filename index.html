@@ -72,15 +72,15 @@
           <button id="reset-state">全部リセット</button>
           <div class="actions-row actions-row-inline">
             <span class="actions-label">JSON操作</span>
-            <button id="export-json">JSONエクスポート</button>
-            <button id="import-json-button" type="button">JSONインポート</button>
+            <button id="import-json-button" type="button" class="action-btn action-import">JSONインポート</button>
+            <button id="export-json" class="action-btn action-export">JSONエクスポート</button>
             <input id="import-json" type="file" accept="application/json,.json" />
           </div>
           <div class="actions-row actions-row-inline">
             <span class="actions-label">SVG操作</span>
-            <button id="import-svg-button" type="button">SVGインポート</button>
+            <button id="import-svg-button" type="button" class="action-btn action-import">SVGインポート</button>
+            <button id="export-svg" class="action-btn action-export">SVGエクスポート</button>
             <input id="import-svg" type="file" accept=".svg,image/svg+xml" />
-            <button id="export-svg">SVGエクスポート</button>
           </div>
         </section>
       </aside>
