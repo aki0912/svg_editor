@@ -251,6 +251,54 @@ function getNodeStyleValue(node, key, fallback = null, root = null) {
   return fallback;
 }
 
+const SVG_FRAGMENT_STYLE_KEYS = [
+  'fill',
+  'stroke',
+  'stroke-width',
+  'stroke-opacity',
+  'fill-opacity',
+  'font-size',
+  'font-family',
+  'font-weight',
+  'font-style',
+  'stroke-linecap',
+  'stroke-linejoin',
+  'stroke-dasharray',
+  'stroke-dashoffset',
+  'letter-spacing',
+  'word-spacing',
+  'text-anchor',
+  'dominant-baseline',
+  'alignment-baseline',
+];
+
+function applyComputedStylesToElementTree(node, svgRoot, keys = SVG_FRAGMENT_STYLE_KEYS) {
+  if (!node || node.nodeType !== 1) return;
+
+  keys.forEach((key) => {
+    if (node.hasAttribute(key)) return;
+    const value = getNodeStyleValue(node, key, null, svgRoot);
+    if (typeof value === 'string' && value.trim() !== '') {
+      node.setAttribute(key, value.trim());
+    }
+  });
+
+  for (const child of Array.from(node.children)) {
+    applyComputedStylesToElementTree(child, svgRoot, keys);
+  }
+}
+
+function createSVGFragmentFromNode(node, svgRoot) {
+  const serializer = new XMLSerializer();
+  const cloned = node.cloneNode(true);
+  applyComputedStylesToElementTree(cloned, svgRoot);
+  return serializer.serializeToString(cloned);
+}
+
+function hasElementChildren(node) {
+  return !!(node && node.children && node.children.length > 0);
+}
+
 function parseNumber(value, fallback = 0) {
   const num = Number.parseFloat(value);
   return Number.isFinite(num) ? num : fallback;
@@ -361,6 +409,72 @@ function getNodeBBox(node) {
   }
 }
 
+function getLineBounds(node) {
+  const x1 = parseNumber(node.getAttribute('x1'), 0);
+  const x2 = parseNumber(node.getAttribute('x2'), x1);
+  const y1 = parseNumber(node.getAttribute('y1'), 0);
+  const y2 = parseNumber(node.getAttribute('y2'), y1);
+
+  const minX = Math.min(x1, x2);
+  const minY = Math.min(y1, y2);
+  const width = Math.abs(x2 - x1);
+  const height = Math.abs(y2 - y1);
+
+  if (width === 0 && height === 0) return null;
+
+  return {
+    x: minX,
+    y: minY,
+    width,
+    height,
+  };
+}
+
+function getPointsBounds(node) {
+  const points = (node.getAttribute('points') || '').trim();
+  if (!points) return null;
+
+  const nums = points
+    .split(/[\s,]+/)
+    .map((item) => Number.parseFloat(item))
+    .filter((item) => Number.isFinite(item));
+
+  if (nums.length < 4) return null;
+
+  let minX = nums[0];
+  let maxX = nums[0];
+  let minY = nums[1];
+  let maxY = nums[1];
+
+  for (let i = 0; i < nums.length; i += 2) {
+    const x = nums[i];
+    const y = nums[i + 1];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+
+  const width = maxX - minX;
+  const height = maxY - minY;
+
+  if (width === 0 && height === 0) return null;
+
+  return {
+    x: minX,
+    y: minY,
+    width,
+    height,
+  };
+}
+
+function getRenderableBounds(node, tag) {
+  if (tag === 'line') return getLineBounds(node);
+  if (tag === 'polyline' || tag === 'polygon') return getPointsBounds(node);
+  return getNodeBBox(node);
+}
+
 function isReferencePaint(value) {
   return typeof value === 'string' && /url\(\s*#[^)]+\)/i.test(value);
 }
@@ -426,9 +540,11 @@ function parseSVGElements(svgRoot) {
         y: parseNumber(node.getAttribute('y'), 0) + transformOffset.y,
         width: Math.max(10, parseNumber(node.getAttribute('width'), 100)),
         height: Math.max(10, parseNumber(node.getAttribute('height'), 100)),
+        rx: parseNumber(node.getAttribute('rx'), 0),
+        ry: parseNumber(node.getAttribute('ry'), 0),
         fill: getNodeStyleValue(node, 'fill', '#4ea5ff', svgRoot),
-        stroke: getNodeStyleValue(node, 'stroke', '#0b2f5a', svgRoot),
-        strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 2, svgRoot), 2),
+        stroke: getNodeStyleValue(node, 'stroke', 'none', svgRoot),
+        strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 0, svgRoot), 0),
       });
     }
 
@@ -443,8 +559,8 @@ function parseSVGElements(svgRoot) {
         width: Math.max(12, r * 2),
         height: Math.max(12, r * 2),
         fill: getNodeStyleValue(node, 'fill', '#64d2ff', svgRoot),
-        stroke: getNodeStyleValue(node, 'stroke', '#0f3f66', svgRoot),
-        strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 2, svgRoot), 2),
+        stroke: getNodeStyleValue(node, 'stroke', 'none', svgRoot),
+        strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 0, svgRoot), 0),
       });
     }
 
@@ -460,52 +576,77 @@ function parseSVGElements(svgRoot) {
         width: Math.max(12, rx * 2),
         height: Math.max(12, ry * 2),
         fill: getNodeStyleValue(node, 'fill', '#64d2ff', svgRoot),
-        stroke: getNodeStyleValue(node, 'stroke', '#0f3f66', svgRoot),
-        strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 2, svgRoot), 2),
+        stroke: getNodeStyleValue(node, 'stroke', 'none', svgRoot),
+        strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 0, svgRoot), 0),
       });
     }
 
     if (tag === 'path' || tag === 'line' || tag === 'polygon' || tag === 'polyline') {
-      const box = getNodeBBox(node);
-      if (!box || box.width <= 0 || box.height <= 0) continue;
-      const serializer = new XMLSerializer();
-      const cloned = node.cloneNode(true);
-      const computedFill = getNodeStyleValue(node, 'fill', null, svgRoot);
-      const computedStroke = getNodeStyleValue(node, 'stroke', null, svgRoot);
-      const computedStrokeWidth = parseNumber(getNodeStyleValue(node, 'stroke-width', 2, svgRoot), 2);
-
-      if (!cloned.hasAttribute('fill') && computedFill !== null) {
-        cloned.setAttribute('fill', computedFill);
-      }
-      if (!cloned.hasAttribute('stroke') && computedStroke !== null) {
-        cloned.setAttribute('stroke', computedStroke);
-      }
-      if (!cloned.hasAttribute('stroke-width') && computedStroke !== null && computedStrokeWidth !== null) {
-        cloned.setAttribute('stroke-width', String(computedStrokeWidth));
-      }
-
-      const nodeText = serializer.serializeToString(cloned);
+      const box = getRenderableBounds(node, tag);
+      if (!box || (box.width === 0 && box.height === 0)) continue;
+      const nodeText = createSVGFragmentFromNode(node, svgRoot);
+      const widthPadding = tag === 'line' ? 1 : 12;
+      const heightPadding = tag === 'line' ? 1 : 12;
+      const sourceWidth = Math.max(1, box.width);
+      const sourceHeight = Math.max(1, box.height);
 
       parsed.push({
         type: 'svg-fragment',
+        isLine: tag === 'line',
         x: box.x + transformOffset.x,
         y: box.y + transformOffset.y,
-        width: Math.max(12, box.width),
-        height: Math.max(12, box.height),
-        sourceWidth: Math.max(1, box.width),
-        sourceHeight: Math.max(1, box.height),
+        width: Math.max(widthPadding, box.width),
+        height: Math.max(heightPadding, box.height),
+        sourceWidth,
+        sourceHeight,
         sourceMinX: box.x,
         sourceMinY: box.y,
-        sourceViewBox: `${box.x} ${box.y} ${Math.max(1, box.width)} ${Math.max(1, box.height)}`,
+        sourceViewBox: `${box.x} ${box.y} ${sourceWidth} ${sourceHeight}`,
         sourcePreserveAspectRatio: 'xMidYMid meet',
         sourceText: `<svg xmlns="http://www.w3.org/2000/svg">${nodeText}</svg>`,
         fill: getNodeStyleValue(node, 'fill', '#4ea5ff', svgRoot),
-        stroke: getNodeStyleValue(node, 'stroke', '#0b2f5a', svgRoot),
-        strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 2, svgRoot), 2),
+        stroke: getNodeStyleValue(node, 'stroke', 'none', svgRoot),
+        strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 0, svgRoot), 0),
       });
     }
 
     if (tag === 'text') {
+      if (hasElementChildren(node) && node.children.length > 0) {
+        const box = getNodeBBox(node);
+        const x = box ? box.x + transformOffset.x : parseNumber(node.getAttribute('x'), 0) + transformOffset.x;
+        const fontSize = parseNumber(getNodeStyleValue(node, 'font-size', 18, svgRoot), 18);
+        const estimatedText = (node.textContent || '').trim() || 'text';
+        const y = box
+          ? box.y + transformOffset.y
+          : parseNumber(node.getAttribute('y'), 0) + transformOffset.y - fontSize;
+        const width = Math.max(12, box ? box.width : Math.max(40, estimatedText.length * fontSize * 0.65));
+        const height = Math.max(12, box ? box.height : fontSize + 16);
+        const nodeText = createSVGFragmentFromNode(node, svgRoot);
+        const sourceWidth = Math.max(1, box ? box.width : width);
+        const sourceHeight = Math.max(1, box ? box.height : height);
+        const sourceMinX = box ? box.x : x;
+        const sourceMinY = box ? box.y : y;
+
+        parsed.push({
+          type: 'svg-fragment',
+          x,
+          y,
+          width,
+          height,
+          sourceWidth,
+          sourceHeight,
+          sourceMinX,
+          sourceMinY,
+          sourceViewBox: `${sourceMinX} ${sourceMinY} ${sourceWidth} ${sourceHeight}`,
+          sourcePreserveAspectRatio: 'xMidYMid meet',
+          sourceText: `<svg xmlns="http://www.w3.org/2000/svg">${nodeText}</svg>`,
+          fill: getNodeStyleValue(node, 'fill', '#111827', svgRoot),
+          stroke: getNodeStyleValue(node, 'stroke', 'none', svgRoot),
+          strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 0, svgRoot), 0),
+        });
+        continue;
+      }
+
       const text = (node.textContent || '').trim() || 'text';
       const fontSize = parseNumber(getNodeStyleValue(node, 'font-size', 32, svgRoot), 32);
       const x = parseNumber(getNodeStyleValue(node, 'x', 0, svgRoot), 0) + transformOffset.x;
@@ -520,7 +661,7 @@ function parseSVGElements(svgRoot) {
         fontSize,
         fontFamily: getNodeStyleValue(node, 'font-family', 'Arial, sans-serif', svgRoot),
         fill: getNodeStyleValue(node, 'fill', '#111827', svgRoot),
-        stroke: getNodeStyleValue(node, 'stroke', '#111827', svgRoot),
+        stroke: getNodeStyleValue(node, 'stroke', 'none', svgRoot),
         strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 0, svgRoot), 0),
       });
     }
@@ -557,14 +698,21 @@ function scaleAndPositionImportedElements(elements, source) {
   const offsetX = (slide.width - sourceWidth * scale) / 2 - source.minX * scale;
   const offsetY = (slide.height - sourceHeight * scale) / 2 - source.minY * scale;
 
-  return elements.map((item) => ({
+  return elements.map((item) => {
+    const minSize = item.type === 'svg-fragment' && item.isLine ? 1 : 8;
+
+    return {
     ...item,
     x: item.x * scale + offsetX,
     y: item.y * scale + offsetY,
-    width: Math.max(8, item.width * scale),
-    height: Math.max(8, item.height * scale),
+    width: Math.max(minSize, item.width * scale),
+    height: Math.max(minSize, item.height * scale),
+    rx: Number.isFinite(item.rx) ? Math.max(0, item.rx * scale) : item.rx,
+    ry: Number.isFinite(item.ry) ? Math.max(0, item.ry * scale) : item.ry,
+    strokeWidth: Number.isFinite(item.strokeWidth) ? Math.max(0, item.strokeWidth * scale) : item.strokeWidth,
     fontSize: item.fontSize ? Math.max(10, Math.round(item.fontSize * scale)) : undefined,
-  }));
+    };
+  });
 }
 
 function addSVGFragmentElement(slide, source, text) {
@@ -684,6 +832,8 @@ function renderElement(el) {
     rect.setAttribute('y', el.y);
     rect.setAttribute('width', el.width);
     rect.setAttribute('height', el.height);
+    if (Number.isFinite(el.rx) && el.rx > 0) rect.setAttribute('rx', el.rx);
+    if (Number.isFinite(el.ry) && el.ry > 0) rect.setAttribute('ry', el.ry);
     rect.setAttribute('fill', el.fill || '#4ea5ff');
     rect.setAttribute('stroke', el.stroke || '#003f7a');
     rect.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
