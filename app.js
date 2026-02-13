@@ -25,6 +25,7 @@ const dom = {
   loadState: document.getElementById('load-state'),
   exportJSON: document.getElementById('export-json'),
   importJSON: document.getElementById('import-json'),
+  importSVG: document.getElementById('import-svg'),
   exportSVG: document.getElementById('export-svg'),
   selectedLabel: document.getElementById('selected-label'),
   propFill: document.getElementById('prop-fill'),
@@ -53,6 +54,182 @@ function createEmptySlide(title = '新規スライド') {
 
 function currentSlide() {
   return state.slides[state.currentSlideIndex] || state.slides[0];
+}
+
+function parseStyleMap(node) {
+  const styleText = node.getAttribute('style');
+  if (!styleText) return {};
+
+  const style = {};
+  styleText.split(';').forEach((pair) => {
+    const [key, value] = pair.split(':');
+    if (!key || !value) return;
+    style[key.trim()] = value.trim();
+  });
+
+  return style;
+}
+
+function getNodeStyleValue(node, key, fallback = null) {
+  const direct = node.getAttribute(key);
+  if (direct !== null) return direct;
+  const style = parseStyleMap(node);
+  return style[key] ?? fallback;
+}
+
+function parseNumber(value, fallback = 0) {
+  const num = Number.parseFloat(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function parseSVGSourceSize(svgRoot) {
+  const viewBox = svgRoot.getAttribute('viewBox');
+  if (viewBox) {
+    const values = viewBox
+      .split(/[\s,]+/)
+      .map((item) => Number.parseFloat(item))
+      .filter((item) => Number.isFinite(item));
+    if (values.length >= 4) {
+      return {
+        minX: values[0],
+        minY: values[1],
+        width: values[2] || 960,
+        height: values[3] || 540,
+      };
+    }
+  }
+
+  return {
+    minX: 0,
+    minY: 0,
+    width: parseNumber(svgRoot.getAttribute('width'), 960),
+    height: parseNumber(svgRoot.getAttribute('height'), 540),
+  };
+}
+
+function parseTranslateTransform(node) {
+  const transform = node.getAttribute('transform');
+  if (!transform) return { x: 0, y: 0 };
+  const match = transform.match(/translate\(([^)]+)\)/i);
+  if (!match || !match[1]) return { x: 0, y: 0 };
+
+  const numbers = match[1]
+    .split(/[,\s]+/)
+    .map((item) => Number.parseFloat(item))
+    .filter((item) => Number.isFinite(item));
+
+  return {
+    x: numbers[0] || 0,
+    y: numbers.length > 1 ? numbers[1] : 0,
+  };
+}
+
+function parseSVGElements(svgRoot) {
+  const source = parseSVGSourceSize(svgRoot);
+  const parsed = [];
+  const nodes = Array.from(svgRoot.querySelectorAll('rect,circle,ellipse,text,image'));
+
+  for (const node of nodes) {
+    const tag = node.tagName.toLowerCase();
+    const transformOffset = parseTranslateTransform(node);
+
+    if (tag === 'rect') {
+      parsed.push({
+        type: 'rect',
+        x: parseNumber(node.getAttribute('x'), 0) + transformOffset.x,
+        y: parseNumber(node.getAttribute('y'), 0) + transformOffset.y,
+        width: Math.max(10, parseNumber(node.getAttribute('width'), 100)),
+        height: Math.max(10, parseNumber(node.getAttribute('height'), 100)),
+        fill: getNodeStyleValue(node, 'fill', '#4ea5ff'),
+        stroke: getNodeStyleValue(node, 'stroke', '#0b2f5a'),
+      });
+    }
+
+    if (tag === 'circle') {
+      const cx = parseNumber(node.getAttribute('cx'), 50);
+      const cy = parseNumber(node.getAttribute('cy'), 50);
+      const r = parseNumber(node.getAttribute('r'), 30);
+      parsed.push({
+        type: 'circle',
+        x: cx - r + transformOffset.x,
+        y: cy - r + transformOffset.y,
+        width: Math.max(12, r * 2),
+        height: Math.max(12, r * 2),
+        fill: getNodeStyleValue(node, 'fill', '#64d2ff'),
+        stroke: getNodeStyleValue(node, 'stroke', '#0f3f66'),
+      });
+    }
+
+    if (tag === 'ellipse') {
+      const cx = parseNumber(node.getAttribute('cx'), 50);
+      const cy = parseNumber(node.getAttribute('cy'), 50);
+      const rx = parseNumber(node.getAttribute('rx'), 40);
+      const ry = parseNumber(node.getAttribute('ry'), 30);
+      parsed.push({
+        type: 'circle',
+        x: cx - rx + transformOffset.x,
+        y: cy - ry + transformOffset.y,
+        width: Math.max(12, rx * 2),
+        height: Math.max(12, ry * 2),
+        fill: getNodeStyleValue(node, 'fill', '#64d2ff'),
+        stroke: getNodeStyleValue(node, 'stroke', '#0f3f66'),
+      });
+    }
+
+    if (tag === 'text') {
+      const text = (node.textContent || '').trim() || 'text';
+      const fontSize = parseNumber(getNodeStyleValue(node, 'font-size', 32), 32);
+      const x = parseNumber(getNodeStyleValue(node, 'x', 0), 0) + transformOffset.x;
+      const y = parseNumber(getNodeStyleValue(node, 'y', 0), 0) + transformOffset.y;
+      parsed.push({
+        type: 'text',
+        x,
+        y: y - fontSize,
+        width: Math.max(40, text.length * fontSize * 0.65),
+        height: fontSize + 16,
+        text,
+        fontSize,
+        fill: getNodeStyleValue(node, 'fill', '#111827'),
+        stroke: getNodeStyleValue(node, 'stroke', '#111827'),
+      });
+    }
+
+    if (tag === 'image') {
+      const href = node.getAttribute('href') || node.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
+      if (!href) continue;
+      parsed.push({
+        type: 'image',
+        x: parseNumber(node.getAttribute('x'), 0) + transformOffset.x,
+        y: parseNumber(node.getAttribute('y'), 0) + transformOffset.y,
+        width: Math.max(10, parseNumber(node.getAttribute('width'), 120)),
+        height: Math.max(10, parseNumber(node.getAttribute('height'), 80)),
+        url: href,
+      });
+    }
+  }
+
+  return { source, elements: parsed };
+}
+
+function scaleAndPositionImportedElements(elements, source) {
+  const slide = currentSlide();
+  if (!elements.length) return [];
+
+  const sourceWidth = Math.max(1, source.width);
+  const sourceHeight = Math.max(1, source.height);
+  const scale = Math.min((slide.width * 0.9) / sourceWidth, (slide.height * 0.9) / sourceHeight);
+
+  const offsetX = (slide.width - sourceWidth * scale) / 2 - source.minX * scale;
+  const offsetY = (slide.height - sourceHeight * scale) / 2 - source.minY * scale;
+
+  return elements.map((item) => ({
+    ...item,
+    x: item.x * scale + offsetX,
+    y: item.y * scale + offsetY,
+    width: Math.max(8, item.width * scale),
+    height: Math.max(8, item.height * scale),
+    fontSize: item.fontSize ? Math.max(10, Math.round(item.fontSize * scale)) : undefined,
+  }));
 }
 
 function getPointerPosition(event) {
@@ -584,6 +761,70 @@ function importJSONFromInput(file) {
   reader.readAsText(file);
 }
 
+function importSVGFromInput(file) {
+  if (!file) return;
+  const accepted = /svg|xml/i;
+  if (!accepted.test(file.type) && !file.name.toLowerCase().endsWith('.svg')) {
+    alert('SVGファイル(.svg)を選択してください');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const text = typeof reader.result === 'string' ? reader.result : '';
+    if (!text) {
+      alert('SVGの読み込み内容が空です');
+      return;
+    }
+
+    const parser = new DOMParser();
+    const svgDocument = parser.parseFromString(text, 'image/svg+xml');
+    const parseError = svgDocument.getElementsByTagName('parsererror')[0];
+    if (parseError) {
+      alert('SVGの解析に失敗しました');
+      return;
+    }
+
+    const root = svgDocument.documentElement;
+    if (!root || root.tagName.toLowerCase() !== 'svg') {
+      alert('有効なSVGではありません');
+      return;
+    }
+
+    const slide = currentSlide();
+    const { source, elements } = parseSVGElements(root);
+    const parsed = scaleAndPositionImportedElements(elements, source);
+    if (!parsed.length) {
+      const fallbackScale = Math.min((slide.width * 0.9) / source.width, (slide.height * 0.9) / source.height);
+      slide.elements.push({
+        id: createId(),
+        type: 'image',
+        x: (slide.width - source.width * fallbackScale) / 2,
+        y: (slide.height - source.height * fallbackScale) / 2,
+        width: source.width * fallbackScale,
+        height: source.height * fallbackScale,
+        url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(text)}`,
+      });
+      state.selectedElementId = slide.elements.at(-1).id;
+      render();
+      return;
+    }
+
+    for (const item of parsed) {
+      const element = { ...item, id: createId() };
+      slide.elements.push(element);
+      state.selectedElementId = element.id;
+    }
+    render();
+  };
+
+  reader.onerror = () => {
+    alert('SVGの読み込みに失敗しました');
+  };
+
+  reader.readAsText(file);
+}
+
 function exportSVG() {
   const serialized = new XMLSerializer().serializeToString(dom.canvas);
   const slide = currentSlide();
@@ -627,6 +868,12 @@ function setupEvents() {
     render();
   });
   dom.exportJSON.addEventListener('click', exportJSON);
+  dom.importSVG.addEventListener('change', (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    importSVGFromInput(file);
+    event.target.value = '';
+  });
   dom.exportSVG.addEventListener('click', exportSVG);
   dom.importJSON.addEventListener('change', (event) => {
     const file = event.target.files?.[0];
