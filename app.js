@@ -1482,10 +1482,17 @@ function importSVGFromInput(file) {
 }
 
 function exportSVG() {
-  const serialized = new XMLSerializer().serializeToString(dom.canvas);
   const slide = currentSlide();
+  const svg = dom.canvas.cloneNode(true);
+  svg.setAttribute('xmlns', SVG_NS);
+  svg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink');
+  svg.setAttribute('width', slide.width);
+  svg.setAttribute('height', slide.height);
+  svg.setAttribute('viewBox', `0 0 ${slide.width} ${slide.height}`);
+
+  const serialized = new XMLSerializer().serializeToString(svg);
   const header = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-  const fullSvg = `${header}<svg xmlns="${SVG_NS}" width="${slide.width}" height="${slide.height}" viewBox="0 0 ${slide.width} ${slide.height}">${serialized.split('>')[1]}`;
+  const fullSvg = `${header}${serialized}`;
   const blob = new Blob([fullSvg], { type: 'image/svg+xml' });
   downloadBlob(blob, `slide-${state.currentSlideIndex + 1}.svg`);
 }
