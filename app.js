@@ -174,7 +174,7 @@ function detectCanvasBackground(svgRoot, source) {
   const rootFill = normalizePaintColor(svgRoot.getAttribute('fill'));
   if (rootFill) return { color: rootFill, node: null };
 
-  const rects = Array.from(svgRoot.querySelectorAll('rect'));
+  const rects = Array.from(svgRoot.querySelectorAll('rect')).filter((rect) => !isInNonRenderableContainer(rect));
   const canvasWidth = Math.max(1, source.width);
   const canvasHeight = Math.max(1, source.height);
 
@@ -271,7 +271,24 @@ const SVG_FRAGMENT_STYLE_KEYS = [
   'text-anchor',
   'dominant-baseline',
   'alignment-baseline',
+  'marker-start',
+  'marker-mid',
+  'marker-end',
 ];
+
+const NON_RENDERABLE_CONTAINER_TAGS = new Set([
+  'defs',
+  'clippath',
+  'mask',
+  'filter',
+  'pattern',
+  'marker',
+  'lineargradient',
+  'radialgradient',
+  'symbol',
+  'metadata',
+]);
+
 
 function applyComputedStylesToElementTree(node, svgRoot, keys = SVG_FRAGMENT_STYLE_KEYS) {
   if (!node || node.nodeType !== 1) return;
@@ -293,7 +310,77 @@ function createSVGFragmentFromNode(node, svgRoot) {
   const serializer = new XMLSerializer();
   const cloned = node.cloneNode(true);
   applyComputedStylesToElementTree(cloned, svgRoot);
-  return serializer.serializeToString(cloned);
+
+  const referencedDefinitions = collectReferencedDefinitions(svgRoot, cloned);
+  const defsSource = referencedDefinitions.length
+    ? `<defs>${referencedDefinitions.map((item) => serializer.serializeToString(item)).join('')}</defs>`
+    : '';
+  return `${defsSource}${serializer.serializeToString(cloned)}`;
+}
+
+function collectReferencedDefinitions(svgRoot, rootNode) {
+  if (!svgRoot || !rootNode) return [];
+
+  const visitedIds = new Set();
+  const queue = [];
+  const defs = [];
+
+  collectReferenceIds(rootNode, queue);
+
+  while (queue.length) {
+    const id = queue.shift();
+    if (!id || visitedIds.has(id)) continue;
+    visitedIds.add(id);
+
+    const element = svgRoot.getElementById(id);
+    if (!element || element.nodeType !== 1) continue;
+
+    const clone = element.cloneNode(true);
+    defs.push(clone);
+    collectReferenceIds(clone, queue);
+  }
+
+  return defs;
+}
+
+function collectReferenceIds(node, queue) {
+  if (!node || node.nodeType !== 1) return;
+
+  const stack = [node];
+  while (stack.length) {
+    const current = stack.pop();
+    for (const attr of Array.from(current.attributes || [])) {
+      const value = attr.value;
+      if (!value) continue;
+      const matches = value.matchAll(/url\(\s*#([^)]+)\)/gi);
+      for (const match of matches) {
+        const id = cleanIdReference(match[1]);
+        if (id) queue.push(id);
+      }
+    }
+
+    for (const child of Array.from(current.children || [])) {
+      stack.push(child);
+    }
+  }
+}
+
+function cleanIdReference(value) {
+  return String(value || '')
+    .replace(/^['"]|['"]$/g, '')
+    .trim()
+    .replace(/^#/, '')
+    .trim();
+}
+
+function isInNonRenderableContainer(node) {
+  let current = node;
+  while (current && current.nodeType === 1) {
+    const tag = current.tagName.toLowerCase();
+    if (NON_RENDERABLE_CONTAINER_TAGS.has(tag)) return true;
+    current = current.parentElement;
+  }
+  return false;
 }
 
 function hasElementChildren(node) {
@@ -379,25 +466,44 @@ function calculateImportFitTransform(source, slide) {
 function parseTranslateTransform(node) {
   const transform = node.getAttribute('transform');
   if (!transform) return { x: 0, y: 0 };
-  const translateOnly = transform.match(/^\s*translate\([^)]*\)\s*$/i);
-  if (!translateOnly) return null;
 
-  const match = transform.match(/translate\(([^)]+)\)/i);
-  if (!match || !match[1]) return null;
+  const operations = transform.match(/[a-zA-Z]+\([^)]+\)/g);
+  if (!operations || operations.length === 0) return { x: 0, y: 0 };
 
-  const numbers = match[1]
-    .split(/[,\s]+/)
-    .map((item) => Number.parseFloat(item))
-    .filter((item) => Number.isFinite(item));
+  let x = 0;
+  let y = 0;
+
+  for (const op of operations) {
+    const matched = op.match(/^([a-zA-Z]+)\(([^)]*)\)$/);
+    if (!matched) continue;
+
+    const opName = matched[1].toLowerCase();
+    const values = matched[2]
+      .split(/[,\s]+/)
+      .map((item) => Number.parseFloat(item))
+      .filter((item) => Number.isFinite(item));
+
+    if (opName === 'translate') {
+      if (values.length === 0) continue;
+      x += values[0];
+      y += values.length > 1 ? values[1] : 0;
+    }
+
+    if (opName === 'matrix') {
+      if (values.length !== 6) continue;
+      x += values[4];
+      y += values[5];
+    }
+  }
 
   return {
-    x: numbers[0] || 0,
-    y: numbers.length > 1 ? numbers[1] : 0,
+    x,
+    y,
   };
 }
 
-function parseCumulativeTranslate(node, svgRoot) {
-  let current = node;
+function parseCumulativeTranslate(node, svgRoot, includeSelf = true) {
+  let current = includeSelf ? node : node?.parentElement || null;
   let x = 0;
   let y = 0;
 
@@ -488,8 +594,51 @@ function getPointsBounds(node) {
 
 function getRenderableBounds(node, tag) {
   if (tag === 'line') return getLineBounds(node);
+  if (tag === 'path') {
+    const pathBounds = getPathBoundsFromPathData(node.getAttribute('d'));
+    if (pathBounds) return pathBounds;
+    return getNodeBBox(node);
+  }
   if (tag === 'polyline' || tag === 'polygon') return getPointsBounds(node);
   return getNodeBBox(node);
+}
+
+function getPathBoundsFromPathData(pathData) {
+  if (!pathData || typeof pathData !== 'string') return null;
+
+  const values = pathData
+    .match(/-?\d*\.?\d+(?:[eE][-+]?\d+)?/g)
+    ?.map((item) => Number.parseFloat(item))
+    ?.filter((item) => Number.isFinite(item));
+
+  if (!values || values.length < 2) return null;
+
+  let minX = values[0];
+  let maxX = values[0];
+  let minY = values[1];
+  let maxY = values[1];
+
+  for (let i = 0; i < values.length - 1; i += 2) {
+    const x = values[i];
+    const y = values[i + 1];
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+
+  const width = maxX - minX;
+  const height = maxY - minY;
+
+  if (width === 0 && height === 0) return null;
+
+  return {
+    x: minX,
+    y: minY,
+    width,
+    height,
+  };
 }
 
 function isWideText(text) {
@@ -633,12 +782,10 @@ function isSVGImportSupportedByParser(svgRoot) {
   const allowed = new Set(['rect', 'circle', 'ellipse', 'text', 'image', 'g']);
   const rootTransform = parseTranslateTransform(svgRoot);
   if (!rootTransform) return false;
-  const nodes = Array.from(svgRoot.querySelectorAll('*'));
+  const nodes = Array.from(svgRoot.querySelectorAll('*')).filter((node) => !isInNonRenderableContainer(node));
   for (const node of nodes) {
     const tag = node.tagName.toLowerCase();
     if (!allowed.has(tag)) return false;
-    const transform = node.getAttribute('transform');
-    if (transform && !/^\s*translate\([^)]*\)\s*$/i.test(transform.trim())) return false;
     if (!parseTranslateTransform(node)) return false;
     if (hasUnsupportedVisualEffect(node, svgRoot)) return false;
   }
@@ -650,11 +797,13 @@ function parseSVGElements(svgRoot) {
   const source = parseSVGSourceSize(svgRoot);
   const parsed = [];
   const backgroundInfo = detectCanvasBackground(svgRoot, source);
-  const nodes = Array.from(svgRoot.querySelectorAll('rect,circle,ellipse,path,line,polygon,polyline,text,image'));
+  const nodes = Array.from(svgRoot.querySelectorAll('rect,circle,ellipse,path,line,polygon,polyline,text,image'))
+    .filter((node) => !isInNonRenderableContainer(node));
 
   for (const node of nodes) {
     const tag = node.tagName.toLowerCase();
     const transformOffset = parseCumulativeTranslate(node, svgRoot);
+    const fragmentTransformOffset = parseCumulativeTranslate(node, svgRoot, false);
     if (!transformOffset) continue;
 
     if (tag === 'rect') {
@@ -719,8 +868,8 @@ function parseSVGElements(svgRoot) {
       parsed.push({
         type: 'svg-fragment',
         isLine: tag === 'line',
-        x: box.x + transformOffset.x,
-        y: box.y + transformOffset.y,
+        x: box.x + fragmentTransformOffset.x,
+        y: box.y + fragmentTransformOffset.y,
         width: Math.max(widthPadding, box.width),
         height: Math.max(heightPadding, box.height),
         sourceWidth,
@@ -745,24 +894,22 @@ function parseSVGElements(svgRoot) {
         }
 
         const box = getNodeBBox(node);
-        const x = box ? box.x + transformOffset.x : parseNumber(node.getAttribute('x'), 0) + transformOffset.x;
+        const baseX = box ? box.x : parseNumber(node.getAttribute('x'), 0);
         const fontSize = parseNumber(getNodeStyleValue(node, 'font-size', 18, svgRoot), 18);
         const estimatedText = (node.textContent || '').trim() || 'text';
-      const y = box
-          ? box.y + transformOffset.y
-          : parseNumber(node.getAttribute('y'), 0) + transformOffset.y - fontSize;
+        const baseY = (box ? box.y : parseNumber(node.getAttribute('y'), 0) - fontSize);
         const width = Math.max(12, box ? box.width : Math.max(40, estimatedText.length * fontSize * 0.65));
         const height = Math.max(12, box ? box.height : fontSize + 16);
         const nodeText = createSVGFragmentFromNode(node, svgRoot);
         const sourceWidth = Math.max(1, box ? box.width : width);
         const sourceHeight = Math.max(1, box ? box.height : height);
-        const sourceMinX = box ? box.x : x;
-        const sourceMinY = box ? box.y : y;
+        const sourceMinX = box ? box.x : baseX;
+        const sourceMinY = box ? box.y : baseY;
 
         parsed.push({
           type: 'svg-fragment',
-          x,
-          y,
+          x: sourceMinX + fragmentTransformOffset.x,
+          y: sourceMinY + fragmentTransformOffset.y,
           width,
           height,
           sourceWidth,
