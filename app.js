@@ -22,8 +22,6 @@ const dom = {
   deleteSlide: document.getElementById('delete-slide'),
   duplicateElement: document.getElementById('duplicate-element'),
   deleteElement: document.getElementById('delete-element'),
-  saveState: document.getElementById('save-state'),
-  loadState: document.getElementById('load-state'),
   resetState: document.getElementById('reset-state'),
   exportJSON: document.getElementById('export-json'),
   importJSON: document.getElementById('import-json'),
@@ -1725,14 +1723,6 @@ function setupEvents() {
   dom.bringFront.addEventListener('click', () => setZOrder(1));
   dom.sendBack.addEventListener('click', () => setZOrder(-1));
 
-  dom.saveState.addEventListener('click', () => {
-    saveLocal();
-    alert('保存しました');
-  });
-  dom.loadState.addEventListener('click', () => {
-    loadLocal();
-    render();
-  });
   dom.resetState.addEventListener('click', resetState);
   dom.exportJSON.addEventListener('click', exportJSON);
   dom.importJSONButton.addEventListener('click', () => {

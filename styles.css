@@ -35,7 +35,10 @@ body {
   width: 100%;
   background: linear-gradient(180deg, var(--panel), var(--panel-2));
   border-right: 1px solid var(--line);
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
   overflow-x: hidden;
 }
 
@@ -139,8 +142,15 @@ button:disabled {
 
 .actions {
   margin-top: 12px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+  flex: 1;
+  min-height: 0;
+}
+
+#reset-state {
+  margin-top: auto;
 }
 
 .actions-row {
