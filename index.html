@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SVG PowerPoint-like Slide Editor</title>
+    <meta name="description" content="モダンなSVGスライドエディタ - プレゼンテーションを簡単に作成" />
+    <title>SVG Slide Editor - モダンなプレゼンテーションツール</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -68,15 +69,15 @@
 
         <section class="actions">
           <div class="actions-row actions-row-inline">
-            <span class="actions-label">JSON操作</span>
-            <button id="import-json-button" type="button" class="action-btn action-import">JSONインポート</button>
-            <button id="export-json" class="action-btn action-export">JSONエクスポート</button>
+            <span class="actions-label">JSON</span>
+            <button id="import-json-button" type="button" class="action-btn action-import">インポート</button>
+            <button id="export-json" class="action-btn action-export">エクスポート</button>
             <input id="import-json" type="file" accept="application/json,.json" />
           </div>
           <div class="actions-row actions-row-inline">
-            <span class="actions-label">SVG操作</span>
-            <button id="import-svg-button" type="button" class="action-btn action-import">SVGインポート</button>
-            <button id="export-svg" class="action-btn action-export">SVGエクスポート</button>
+            <span class="actions-label">SVG</span>
+            <button id="import-svg-button" type="button" class="action-btn action-import">インポート</button>
+            <button id="export-svg" class="action-btn action-export">エクスポート</button>
             <input id="import-svg" type="file" accept=".svg,image/svg+xml" />
           </div>
           <button id="reset-state">全部リセット</button>
@@ -86,7 +87,7 @@
       <main class="main">
         <header class="status-bar">
           <span id="slide-title"></span>
-          <span id="instructions">※ 要素をドラッグして移動、端点をドラッグしてサイズ変更</span>
+          <span id="instructions">ドラッグして移動 • 端点で拡大縮小</span>
         </header>
 
         <section class="canvas-wrap">
