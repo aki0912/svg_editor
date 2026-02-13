@@ -510,6 +510,8 @@ function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
   const baseTextAnchor = getNodeStyleValue(node, 'text-anchor', 'start', svgRoot);
   const baseDominantBaseline = getNodeStyleValue(node, 'dominant-baseline', 'auto', svgRoot);
   const baseAlignmentBaseline = getNodeStyleValue(node, 'alignment-baseline', 'auto', svgRoot);
+  const baseFontWeight = getNodeStyleValue(node, 'font-weight', 'normal', svgRoot);
+  const baseFontStyle = getNodeStyleValue(node, 'font-style', 'normal', svgRoot);
 
   const elements = [];
   let cursorY = baseY;
@@ -527,6 +529,8 @@ function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
     const fill = getNodeStyleValue(span, 'fill', baseFill, svgRoot);
     const stroke = getNodeStyleValue(span, 'stroke', 'none', svgRoot);
     const strokeWidth = parseNumber(getNodeStyleValue(span, 'stroke-width', 0, svgRoot), 0);
+    const fontWeight = getNodeStyleValue(span, 'font-weight', baseFontWeight, svgRoot);
+    const fontStyle = getNodeStyleValue(span, 'font-style', baseFontStyle, svgRoot);
 
     if (lineIndex > 0) cursorY += spanDY;
     if (lineIndex === 0 && spanYAttr === null && spanDY !== 0) cursorY = baseY + spanDY;
@@ -541,6 +545,8 @@ function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
       text,
       fontSize: spanFontSize,
       fontFamily,
+      fontWeight,
+      fontStyle,
       fill,
       textAnchor: getNodeStyleValue(span, 'text-anchor', baseTextAnchor, svgRoot),
           dominantBaseline: getNodeStyleValue(span, 'dominant-baseline', baseDominantBaseline, svgRoot),
@@ -698,7 +704,7 @@ function parseSVGElements(svgRoot) {
         const x = box ? box.x + transformOffset.x : parseNumber(node.getAttribute('x'), 0) + transformOffset.x;
         const fontSize = parseNumber(getNodeStyleValue(node, 'font-size', 18, svgRoot), 18);
         const estimatedText = (node.textContent || '').trim() || 'text';
-        const y = box
+      const y = box
           ? box.y + transformOffset.y
           : parseNumber(node.getAttribute('y'), 0) + transformOffset.y - fontSize;
         const width = Math.max(12, box ? box.width : Math.max(40, estimatedText.length * fontSize * 0.65));
@@ -726,6 +732,8 @@ function parseSVGElements(svgRoot) {
           textAnchor: getNodeStyleValue(node, 'text-anchor', 'start', svgRoot),
           dominantBaseline: getNodeStyleValue(node, 'dominant-baseline', 'auto', svgRoot),
           alignmentBaseline: getNodeStyleValue(node, 'alignment-baseline', 'auto', svgRoot),
+          fontWeight: getNodeStyleValue(node, 'font-weight', 'normal', svgRoot),
+          fontStyle: getNodeStyleValue(node, 'font-style', 'normal', svgRoot),
           stroke: getNodeStyleValue(node, 'stroke', 'none', svgRoot),
           strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 0, svgRoot), 0),
         });
@@ -748,6 +756,8 @@ function parseSVGElements(svgRoot) {
         textAnchor: getNodeStyleValue(node, 'text-anchor', 'start', svgRoot),
         dominantBaseline: getNodeStyleValue(node, 'dominant-baseline', 'auto', svgRoot),
         alignmentBaseline: getNodeStyleValue(node, 'alignment-baseline', 'auto', svgRoot),
+        fontWeight: getNodeStyleValue(node, 'font-weight', 'normal', svgRoot),
+        fontStyle: getNodeStyleValue(node, 'font-style', 'normal', svgRoot),
         fill: getNodeStyleValue(node, 'fill', '#111827', svgRoot),
         stroke: getNodeStyleValue(node, 'stroke', 'none', svgRoot),
         strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 0, svgRoot), 0),
@@ -900,6 +910,8 @@ function renderElement(el) {
     text.setAttribute('fill', el.fill || '#111827');
     text.setAttribute('font-size', String(el.fontSize || 32));
     text.setAttribute('font-family', el.fontFamily || 'Arial, sans-serif');
+    text.setAttribute('font-weight', el.fontWeight || 'normal');
+    text.setAttribute('font-style', el.fontStyle || 'normal');
     text.setAttribute('text-anchor', el.textAnchor || 'start');
     text.setAttribute('dominant-baseline', el.dominantBaseline || 'hanging');
     text.setAttribute('alignment-baseline', el.alignmentBaseline || 'auto');
