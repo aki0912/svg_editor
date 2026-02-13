@@ -492,6 +492,31 @@ function getRenderableBounds(node, tag) {
   return getNodeBBox(node);
 }
 
+function isWideText(text) {
+  return /[^\x00-\x7F]/.test(text);
+}
+
+function measureTSpanWidth(text, span, spanFontSize) {
+  try {
+    if (span && typeof span.getComputedTextLength === 'function') {
+      const length = span.getComputedTextLength();
+      if (Number.isFinite(length) && length > 0) return length;
+    }
+  } catch {
+    // no-op
+  }
+
+  try {
+    const box = getNodeBBox(span);
+    if (box && Number.isFinite(box.width) && box.width > 0) return box.width;
+  } catch {
+    // no-op
+  }
+
+  const ratio = isWideText(text) ? 1 : 0.62;
+  return Math.max(24, text.length * spanFontSize * ratio);
+}
+
 function isReferencePaint(value) {
   return typeof value === 'string' && /url\(\s*#[^)]+\)/i.test(value);
 }
@@ -515,15 +540,17 @@ function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
 
   const elements = [];
   let cursorY = baseY;
+  let cursorX = baseX;
   let lineIndex = 0;
 
   for (const span of allChildren) {
-    const text = (span.textContent || '').trim();
-    if (!text) continue;
+    const text = span.textContent || '';
+    if (!text.trim()) continue;
 
-    const spanX = parseNumber(span.getAttribute('x'), baseX);
     const spanYAttr = span.getAttribute('y');
+    const spanXAttr = span.getAttribute('x');
     const spanDY = parseNumber(span.getAttribute('dy'), 0);
+    const spanDX = parseNumber(span.getAttribute('dx'), 0);
     const spanFontSize = parseNumber(getNodeStyleValue(span, 'font-size', baseFontSize, svgRoot), baseFontSize);
     const fontFamily = getNodeStyleValue(span, 'font-family', baseFontFamily, svgRoot);
     const fill = getNodeStyleValue(span, 'fill', baseFill, svgRoot);
@@ -532,16 +559,32 @@ function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
     const fontWeight = getNodeStyleValue(span, 'font-weight', baseFontWeight, svgRoot);
     const fontStyle = getNodeStyleValue(span, 'font-style', baseFontStyle, svgRoot);
 
-    if (lineIndex > 0) cursorY += spanDY;
-    if (lineIndex === 0 && spanYAttr === null && spanDY !== 0) cursorY = baseY + spanDY;
-    if (spanYAttr !== null) cursorY = parseNumber(spanYAttr, cursorY);
+    const hasLineBreak = spanYAttr !== null || (lineIndex > 0 && spanDY !== 0);
+    const hasAbsoluteX = spanXAttr !== null;
+
+    if (hasLineBreak) {
+      if (spanYAttr !== null) {
+        cursorY = parseNumber(spanYAttr, cursorY);
+      } else {
+        cursorY += spanDY;
+      }
+      cursorX = baseX;
+    } else if (lineIndex === 0 && spanYAttr === null && spanDY !== 0) {
+      cursorY = baseY + spanDY;
+    }
+
+    let x = hasAbsoluteX ? parseNumber(spanXAttr, cursorX) : cursorX;
+    if (spanDX !== 0) x += spanDX;
+
+    const estimatedWidth = measureTSpanWidth(text, span, spanFontSize);
+    const estimatedHeight = Math.max(16, spanFontSize + 14);
 
     elements.push({
       type: 'text',
-      x: spanX + transformOffset.x,
+      x,
       y: cursorY + transformOffset.y - spanFontSize,
-      width: Math.max(24, text.length * spanFontSize * 0.65),
-      height: spanFontSize + 14,
+      width: estimatedWidth,
+      height: estimatedHeight,
       text,
       fontSize: spanFontSize,
       fontFamily,
@@ -555,6 +598,7 @@ function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
       strokeWidth,
     });
 
+    cursorX = x + estimatedWidth;
     lineIndex += 1;
   }
 
