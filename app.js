@@ -23,10 +23,13 @@ const dom = {
   deleteElement: document.getElementById('delete-element'),
   saveState: document.getElementById('save-state'),
   loadState: document.getElementById('load-state'),
+  resetState: document.getElementById('reset-state'),
   exportJSON: document.getElementById('export-json'),
   importJSON: document.getElementById('import-json'),
+  importJSONButton: document.getElementById('import-json-button'),
   importSVG: document.getElementById('import-svg'),
   exportSVG: document.getElementById('export-svg'),
+  importSVGButton: document.getElementById('import-svg-button'),
   selectedLabel: document.getElementById('selected-label'),
   propFill: document.getElementById('prop-fill'),
   propStroke: document.getElementById('prop-stroke'),
@@ -46,7 +49,7 @@ function createEmptySlide(title = '新規スライド') {
     id: createId(),
     title,
     width: 960,
-    height: 540,
+    height: 720,
     background: '#ffffff',
     elements: [],
   };
@@ -70,11 +73,182 @@ function parseStyleMap(node) {
   return style;
 }
 
-function getNodeStyleValue(node, key, fallback = null) {
-  const direct = node.getAttribute(key);
-  if (direct !== null) return direct;
-  const style = parseStyleMap(node);
-  return style[key] ?? fallback;
+const svgStyleCache = new WeakMap();
+
+function parseStyleTextBlock(text) {
+  const style = {};
+  if (!text) return style;
+
+  text.split(';').forEach((pair) => {
+    const [key, value] = pair.split(':');
+    if (!key || !value) return;
+    style[key.trim()] = value.trim();
+  });
+
+  return style;
+}
+
+function isSimpleSvgSelector(selector) {
+  return /^([.#]?[\w-]+|[a-zA-Z][\w-]*)$/.test(selector);
+}
+
+function matchesStyleSelector(selector, node) {
+  if (!selector || !node || node.nodeType !== 1) return false;
+
+  if (selector.startsWith('.')) {
+    const className = selector.slice(1);
+    const classes = (node.getAttribute('class') || '').split(/\s+/);
+    return classes.includes(className);
+  }
+
+  if (selector.startsWith('#')) {
+    return node.getAttribute('id') === selector.slice(1);
+  }
+
+  return node.tagName.toLowerCase() === selector.toLowerCase();
+}
+
+function parseSimpleSVGStyleRules(svgRoot) {
+const rules = [];
+  const styleElements = svgRoot.querySelectorAll('style');
+
+  styleElements.forEach((styleEl) => {
+    const text = styleEl.textContent || '';
+    const cleaned = text.replace(/\/\*[\s\S]*?\*\//g, '');
+    const rulePattern = /([^{}]+)\{([^}]*)\}/g;
+    let match;
+
+    while ((match = rulePattern.exec(cleaned)) !== null) {
+      const selectorText = match[1].trim();
+      const declarations = parseStyleTextBlock(match[2]);
+      const selectors = selectorText.split(',').map((item) => item.trim()).filter(isSimpleSvgSelector);
+
+      for (const selector of selectors) {
+        rules.push({ selector, declarations });
+      }
+    }
+  });
+
+  return rules;
+}
+
+function normalizePaintColor(value) {
+  if (typeof value !== 'string') return null;
+  const color = value.trim();
+  if (!color) return null;
+
+  const lower = color.toLowerCase();
+  if (['none', 'transparent', 'inherit', 'initial', 'currentcolor'].includes(lower)) return null;
+
+  return color;
+}
+
+function parseLengthOrCanvas(value, canvasSize, fallback = null) {
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : fallback;
+  if (typeof value !== 'string') return fallback;
+
+  const normalized = value.trim();
+  if (!normalized) return fallback;
+
+  if (canvasSize && normalized.endsWith('%')) {
+    const ratio = Number.parseFloat(normalized);
+    return Number.isFinite(ratio) ? (canvasSize * ratio) / 100 : fallback;
+  }
+
+  const num = Number.parseFloat(normalized);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function detectCanvasBackground(svgRoot, source) {
+  if (!svgRoot || !source) return { color: null, node: null };
+
+  const rootStyle = parseStyleMap(svgRoot);
+  const rootBg =
+    normalizePaintColor(rootStyle.background)
+    || normalizePaintColor(rootStyle['background-color'])
+    || normalizePaintColor(svgRoot.getAttribute('background'));
+
+  if (rootBg) return { color: rootBg, node: null };
+
+  const rootFill = normalizePaintColor(svgRoot.getAttribute('fill'));
+  if (rootFill) return { color: rootFill, node: null };
+
+  const rects = Array.from(svgRoot.querySelectorAll('rect'));
+  const canvasWidth = Math.max(1, source.width);
+  const canvasHeight = Math.max(1, source.height);
+
+  for (const rect of rects) {
+    const fill = normalizePaintColor(getNodeStyleValue(rect, 'fill', null, svgRoot));
+    if (!fill) continue;
+
+    const stroke = normalizePaintColor(getNodeStyleValue(rect, 'stroke', 'none', svgRoot));
+    const strokeWidth = parseNumber(getNodeStyleValue(rect, 'stroke-width', 0, svgRoot), 0);
+    if (stroke && stroke.toLowerCase() !== 'none' && strokeWidth > 0) continue;
+
+    const offset = parseCumulativeTranslate(rect, svgRoot);
+    if (!offset) continue;
+
+    const width = parseLengthOrCanvas(rect.getAttribute('width'), canvasWidth, 0);
+    const height = parseLengthOrCanvas(rect.getAttribute('height'), canvasHeight, 0);
+    const x = parseNumber(rect.getAttribute('x'), 0) + offset.x;
+    const y = parseNumber(rect.getAttribute('y'), 0) + offset.y;
+
+    if (width <= 0 || height <= 0) continue;
+
+    const isCanvasWidth = width >= canvasWidth * 0.95;
+    const isCanvasHeight = height >= canvasHeight * 0.95;
+    const startsAtCanvasLeft = x <= source.minX + canvasWidth * 0.05;
+    const startsAtCanvasTop = y <= source.minY + canvasHeight * 0.05;
+
+    if (isCanvasWidth && isCanvasHeight && startsAtCanvasLeft && startsAtCanvasTop) {
+      return { color: fill, node: rect };
+    }
+  }
+
+  return { color: null, node: null };
+}
+
+function getSVGStyleRules(svgRoot) {
+  if (!svgRoot) return [];
+  if (svgStyleCache.has(svgRoot)) return svgStyleCache.get(svgRoot);
+
+  const rules = parseSimpleSVGStyleRules(svgRoot);
+  svgStyleCache.set(svgRoot, rules);
+  return rules;
+}
+
+function getStyleFromRules(node, key, rules) {
+  for (let i = rules.length - 1; i >= 0; i -= 1) {
+    const rule = rules[i];
+    if (!rule || !rule.declarations) continue;
+    if (!matchesStyleSelector(rule.selector, node)) continue;
+    if (Object.prototype.hasOwnProperty.call(rule.declarations, key)) {
+      return rule.declarations[key];
+    }
+  }
+  return null;
+}
+
+function getNodeStyleValue(node, key, fallback = null, root = null) {
+  let current = node;
+  const rules = root ? getSVGStyleRules(root) : [];
+
+  while (current && current.nodeType === 1) {
+    const direct = current.getAttribute(key);
+    if (direct !== null) return direct;
+
+    const style = parseStyleMap(current);
+    if (Object.prototype.hasOwnProperty.call(style, key)) return style[key];
+
+    if (rules.length) {
+      const declared = getStyleFromRules(current, key, rules);
+      if (declared !== null) return declared;
+    }
+
+    if (root && current === root) break;
+    current = current.parentElement;
+  }
+  return fallback;
 }
 
 function parseNumber(value, fallback = 0) {
@@ -82,36 +256,69 @@ function parseNumber(value, fallback = 0) {
   return Number.isFinite(num) ? num : fallback;
 }
 
+function parseLengthOrDefault(value, fallback = null) {
+  if (typeof value === 'number') return Number.isFinite(value) && value > 0 ? value : fallback;
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim();
+  if (!normalized || normalized.endsWith('%')) return fallback;
+
+  const num = Number.parseFloat(normalized);
+  return Number.isFinite(num) && num > 0 ? num : fallback;
+}
+
+function getNodeAttributeOrStyleNumber(node, key, fallback = 0) {
+  const inline = node.getAttribute(key);
+  const fromStyle = parseStyleMap(node)[key];
+  return parseLengthOrDefault(inline || fromStyle, fallback);
+}
+
 function parseSVGSourceSize(svgRoot) {
   const viewBox = svgRoot.getAttribute('viewBox');
+  let viewBoxText = '';
+  let minX = 0;
+  let minY = 0;
+
   if (viewBox) {
+    viewBoxText = viewBox;
     const values = viewBox
       .split(/[\s,]+/)
       .map((item) => Number.parseFloat(item))
       .filter((item) => Number.isFinite(item));
-    if (values.length >= 4) {
+    if (values.length >= 4 && values[2] > 0 && values[3] > 0) {
+      minX = values[0];
+      minY = values[1];
       return {
-        minX: values[0],
-        minY: values[1],
-        width: values[2] || 960,
-        height: values[3] || 540,
+        minX,
+        minY,
+        width: values[2],
+        height: values[3],
+        viewBox: viewBoxText,
+        preserveAspectRatio: svgRoot.getAttribute('preserveAspectRatio') || 'xMidYMid meet',
       };
     }
   }
 
+  const width = parseLengthOrDefault(getNodeAttributeOrStyleNumber(svgRoot, 'width'), 960) || parseLengthOrDefault(svgRoot.getAttribute('width'), 960) || 960;
+  const height = parseLengthOrDefault(getNodeAttributeOrStyleNumber(svgRoot, 'height'), 720) || parseLengthOrDefault(svgRoot.getAttribute('height'), 720) || 720;
+
   return {
-    minX: 0,
-    minY: 0,
-    width: parseNumber(svgRoot.getAttribute('width'), 960),
-    height: parseNumber(svgRoot.getAttribute('height'), 540),
+    minX,
+    minY,
+    width,
+    height,
+    viewBox: `${0} ${0} ${width} ${height}`,
+    preserveAspectRatio: svgRoot.getAttribute('preserveAspectRatio') || 'xMidYMid meet',
   };
 }
 
 function parseTranslateTransform(node) {
   const transform = node.getAttribute('transform');
   if (!transform) return { x: 0, y: 0 };
+  const translateOnly = transform.match(/^\s*translate\([^)]*\)\s*$/i);
+  if (!translateOnly) return null;
+
   const match = transform.match(/translate\(([^)]+)\)/i);
-  if (!match || !match[1]) return { x: 0, y: 0 };
+  if (!match || !match[1]) return null;
 
   const numbers = match[1]
     .split(/[,\s]+/)
@@ -124,24 +331,104 @@ function parseTranslateTransform(node) {
   };
 }
 
+function parseCumulativeTranslate(node, svgRoot) {
+  let current = node;
+  let x = 0;
+  let y = 0;
+
+  while (current) {
+    const transformOffset = parseTranslateTransform(current);
+    if (!transformOffset) return null;
+    x += transformOffset.x;
+    y += transformOffset.y;
+    if (current === svgRoot) break;
+    current = current.parentElement;
+  }
+
+  return { x, y };
+}
+
+function getNodeBBox(node) {
+  try {
+    if (typeof node.getBBox !== 'function') return null;
+    const box = node.getBBox();
+    if (!box || Number.isNaN(box.x) || Number.isNaN(box.y) || Number.isNaN(box.width) || Number.isNaN(box.height)) {
+      return null;
+    }
+    return box;
+  } catch {
+    return null;
+  }
+}
+
+function isReferencePaint(value) {
+  return typeof value === 'string' && /url\(\s*#[^)]+\)/i.test(value);
+}
+
+function hasUnsupportedVisualEffect(node, svgRoot) {
+  const style = parseStyleMap(node);
+  const unsupportedAttrKeys = ['filter', 'clip-path', 'mask'];
+
+  for (const key of unsupportedAttrKeys) {
+    const attr = node.getAttribute(key);
+    const styleValue = style[key];
+
+    if (attr && attr !== 'none') return true;
+    if (styleValue && styleValue !== 'none') return true;
+  }
+
+  const opacity = parseNumber(getNodeStyleValue(node, 'opacity', 1, svgRoot), 1);
+  const fillOpacity = parseNumber(getNodeStyleValue(node, 'fill-opacity', 1, svgRoot), 1);
+  const strokeOpacity = parseNumber(getNodeStyleValue(node, 'stroke-opacity', 1, svgRoot), 1);
+  if (opacity < 1 || fillOpacity < 1 || strokeOpacity < 1) return true;
+
+  const fill = getNodeStyleValue(node, 'fill', null, svgRoot);
+  const stroke = getNodeStyleValue(node, 'stroke', null, svgRoot);
+  if (isReferencePaint(fill) || isReferencePaint(stroke)) return true;
+
+  return false;
+}
+
+function isSVGImportSupportedByParser(svgRoot) {
+  const allowed = new Set(['rect', 'circle', 'ellipse', 'text', 'image', 'g']);
+  const rootTransform = parseTranslateTransform(svgRoot);
+  if (!rootTransform) return false;
+  const nodes = Array.from(svgRoot.querySelectorAll('*'));
+  for (const node of nodes) {
+    const tag = node.tagName.toLowerCase();
+    if (!allowed.has(tag)) return false;
+    const transform = node.getAttribute('transform');
+    if (transform && !/^\s*translate\([^)]*\)\s*$/i.test(transform.trim())) return false;
+    if (!parseTranslateTransform(node)) return false;
+    if (hasUnsupportedVisualEffect(node, svgRoot)) return false;
+  }
+
+  return true;
+}
+
 function parseSVGElements(svgRoot) {
   const source = parseSVGSourceSize(svgRoot);
   const parsed = [];
-  const nodes = Array.from(svgRoot.querySelectorAll('rect,circle,ellipse,text,image'));
+  const backgroundInfo = detectCanvasBackground(svgRoot, source);
+  const nodes = Array.from(svgRoot.querySelectorAll('rect,circle,ellipse,path,line,polygon,polyline,text,image'));
 
   for (const node of nodes) {
     const tag = node.tagName.toLowerCase();
-    const transformOffset = parseTranslateTransform(node);
+    const transformOffset = parseCumulativeTranslate(node, svgRoot);
+    if (!transformOffset) continue;
 
     if (tag === 'rect') {
+      if (node === backgroundInfo.node) continue;
+
       parsed.push({
         type: 'rect',
         x: parseNumber(node.getAttribute('x'), 0) + transformOffset.x,
         y: parseNumber(node.getAttribute('y'), 0) + transformOffset.y,
         width: Math.max(10, parseNumber(node.getAttribute('width'), 100)),
         height: Math.max(10, parseNumber(node.getAttribute('height'), 100)),
-        fill: getNodeStyleValue(node, 'fill', '#4ea5ff'),
-        stroke: getNodeStyleValue(node, 'stroke', '#0b2f5a'),
+        fill: getNodeStyleValue(node, 'fill', '#4ea5ff', svgRoot),
+        stroke: getNodeStyleValue(node, 'stroke', '#0b2f5a', svgRoot),
+        strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 2, svgRoot), 2),
       });
     }
 
@@ -155,8 +442,9 @@ function parseSVGElements(svgRoot) {
         y: cy - r + transformOffset.y,
         width: Math.max(12, r * 2),
         height: Math.max(12, r * 2),
-        fill: getNodeStyleValue(node, 'fill', '#64d2ff'),
-        stroke: getNodeStyleValue(node, 'stroke', '#0f3f66'),
+        fill: getNodeStyleValue(node, 'fill', '#64d2ff', svgRoot),
+        stroke: getNodeStyleValue(node, 'stroke', '#0f3f66', svgRoot),
+        strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 2, svgRoot), 2),
       });
     }
 
@@ -166,21 +454,62 @@ function parseSVGElements(svgRoot) {
       const rx = parseNumber(node.getAttribute('rx'), 40);
       const ry = parseNumber(node.getAttribute('ry'), 30);
       parsed.push({
-        type: 'circle',
+        type: 'ellipse',
         x: cx - rx + transformOffset.x,
         y: cy - ry + transformOffset.y,
         width: Math.max(12, rx * 2),
         height: Math.max(12, ry * 2),
-        fill: getNodeStyleValue(node, 'fill', '#64d2ff'),
-        stroke: getNodeStyleValue(node, 'stroke', '#0f3f66'),
+        fill: getNodeStyleValue(node, 'fill', '#64d2ff', svgRoot),
+        stroke: getNodeStyleValue(node, 'stroke', '#0f3f66', svgRoot),
+        strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 2, svgRoot), 2),
+      });
+    }
+
+    if (tag === 'path' || tag === 'line' || tag === 'polygon' || tag === 'polyline') {
+      const box = getNodeBBox(node);
+      if (!box || box.width <= 0 || box.height <= 0) continue;
+      const serializer = new XMLSerializer();
+      const cloned = node.cloneNode(true);
+      const computedFill = getNodeStyleValue(node, 'fill', null, svgRoot);
+      const computedStroke = getNodeStyleValue(node, 'stroke', null, svgRoot);
+      const computedStrokeWidth = parseNumber(getNodeStyleValue(node, 'stroke-width', 2, svgRoot), 2);
+
+      if (!cloned.hasAttribute('fill') && computedFill !== null) {
+        cloned.setAttribute('fill', computedFill);
+      }
+      if (!cloned.hasAttribute('stroke') && computedStroke !== null) {
+        cloned.setAttribute('stroke', computedStroke);
+      }
+      if (!cloned.hasAttribute('stroke-width') && computedStroke !== null && computedStrokeWidth !== null) {
+        cloned.setAttribute('stroke-width', String(computedStrokeWidth));
+      }
+
+      const nodeText = serializer.serializeToString(cloned);
+
+      parsed.push({
+        type: 'svg-fragment',
+        x: box.x + transformOffset.x,
+        y: box.y + transformOffset.y,
+        width: Math.max(12, box.width),
+        height: Math.max(12, box.height),
+        sourceWidth: Math.max(1, box.width),
+        sourceHeight: Math.max(1, box.height),
+        sourceMinX: box.x,
+        sourceMinY: box.y,
+        sourceViewBox: `${box.x} ${box.y} ${Math.max(1, box.width)} ${Math.max(1, box.height)}`,
+        sourcePreserveAspectRatio: 'xMidYMid meet',
+        sourceText: `<svg xmlns="http://www.w3.org/2000/svg">${nodeText}</svg>`,
+        fill: getNodeStyleValue(node, 'fill', '#4ea5ff', svgRoot),
+        stroke: getNodeStyleValue(node, 'stroke', '#0b2f5a', svgRoot),
+        strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 2, svgRoot), 2),
       });
     }
 
     if (tag === 'text') {
       const text = (node.textContent || '').trim() || 'text';
-      const fontSize = parseNumber(getNodeStyleValue(node, 'font-size', 32), 32);
-      const x = parseNumber(getNodeStyleValue(node, 'x', 0), 0) + transformOffset.x;
-      const y = parseNumber(getNodeStyleValue(node, 'y', 0), 0) + transformOffset.y;
+      const fontSize = parseNumber(getNodeStyleValue(node, 'font-size', 32, svgRoot), 32);
+      const x = parseNumber(getNodeStyleValue(node, 'x', 0, svgRoot), 0) + transformOffset.x;
+      const y = parseNumber(getNodeStyleValue(node, 'y', 0, svgRoot), 0) + transformOffset.y;
       parsed.push({
         type: 'text',
         x,
@@ -189,8 +518,10 @@ function parseSVGElements(svgRoot) {
         height: fontSize + 16,
         text,
         fontSize,
-        fill: getNodeStyleValue(node, 'fill', '#111827'),
-        stroke: getNodeStyleValue(node, 'stroke', '#111827'),
+        fontFamily: getNodeStyleValue(node, 'font-family', 'Arial, sans-serif', svgRoot),
+        fill: getNodeStyleValue(node, 'fill', '#111827', svgRoot),
+        stroke: getNodeStyleValue(node, 'stroke', '#111827', svgRoot),
+        strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 0, svgRoot), 0),
       });
     }
 
@@ -208,7 +539,11 @@ function parseSVGElements(svgRoot) {
     }
   }
 
-  return { source, elements: parsed };
+  return {
+    source,
+    backgroundColor: backgroundInfo.color,
+    elements: parsed,
+  };
 }
 
 function scaleAndPositionImportedElements(elements, source) {
@@ -230,6 +565,33 @@ function scaleAndPositionImportedElements(elements, source) {
     height: Math.max(8, item.height * scale),
     fontSize: item.fontSize ? Math.max(10, Math.round(item.fontSize * scale)) : undefined,
   }));
+}
+
+function addSVGFragmentElement(slide, source, text) {
+  const scale = Math.min(
+    (slide.width * 0.9) / Math.max(1, source.width),
+    (slide.height * 0.9) / Math.max(1, source.height),
+  );
+
+  slide.elements.push({
+    id: createId(),
+    type: 'svg-fragment',
+    x: (slide.width - source.width * scale) / 2 - source.minX * scale,
+    y: (slide.height - source.height * scale) / 2 - source.minY * scale,
+    width: Math.max(12, source.width * scale),
+    height: Math.max(12, source.height * scale),
+    sourceWidth: source.width,
+    sourceHeight: source.height,
+    sourceMinX: source.minX,
+    sourceMinY: source.minY,
+    sourceViewBox: source.viewBox,
+    sourcePreserveAspectRatio: source.preserveAspectRatio,
+    sourceText: text,
+  });
+}
+
+function shouldUseSvgFragmentImport(svgRoot, parsedElements) {
+  return !parsedElements.length;
 }
 
 function getPointerPosition(event) {
@@ -309,8 +671,10 @@ function renderElement(el) {
     text.setAttribute('y', el.y + el.fontSize);
     text.setAttribute('fill', el.fill || '#111827');
     text.setAttribute('font-size', String(el.fontSize || 32));
-    text.setAttribute('font-family', 'Arial, sans-serif');
+    text.setAttribute('font-family', el.fontFamily || 'Arial, sans-serif');
     text.setAttribute('dominant-baseline', 'hanging');
+    text.setAttribute('stroke', el.stroke || 'none');
+    text.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 0);
     g.appendChild(text);
   }
 
@@ -322,7 +686,7 @@ function renderElement(el) {
     rect.setAttribute('height', el.height);
     rect.setAttribute('fill', el.fill || '#4ea5ff');
     rect.setAttribute('stroke', el.stroke || '#003f7a');
-    rect.setAttribute('stroke-width', 2);
+    rect.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
     g.appendChild(rect);
   }
 
@@ -336,8 +700,20 @@ function renderElement(el) {
     circle.setAttribute('r', r);
     circle.setAttribute('fill', el.fill || '#64d2ff');
     circle.setAttribute('stroke', el.stroke || '#0f3f66');
-    circle.setAttribute('stroke-width', 2);
+    circle.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
     g.appendChild(circle);
+  }
+
+  if (el.type === 'ellipse') {
+    const ellipse = document.createElementNS(SVG_NS, 'ellipse');
+    ellipse.setAttribute('cx', el.x + el.width / 2);
+    ellipse.setAttribute('cy', el.y + el.height / 2);
+    ellipse.setAttribute('rx', el.width / 2);
+    ellipse.setAttribute('ry', el.height / 2);
+    ellipse.setAttribute('fill', el.fill || '#64d2ff');
+    ellipse.setAttribute('stroke', el.stroke || '#0f3f66');
+    ellipse.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
+    g.appendChild(ellipse);
   }
 
   if (el.type === 'image') {
@@ -349,6 +725,32 @@ function renderElement(el) {
     image.setAttribute('height', el.height);
     image.setAttribute('preserveAspectRatio', 'xMidYMid meet');
     g.appendChild(image);
+  }
+
+  if (el.type === 'svg-fragment') {
+    const sourceWidth = Math.max(1, Number.parseFloat(el.sourceWidth) || 1);
+    const sourceHeight = Math.max(1, Number.parseFloat(el.sourceHeight) || 1);
+    const inlineSvg = document.createElementNS(SVG_NS, 'svg');
+    inlineSvg.setAttribute('x', el.x);
+    inlineSvg.setAttribute('y', el.y);
+    inlineSvg.setAttribute('width', el.width);
+    inlineSvg.setAttribute('height', el.height);
+    inlineSvg.setAttribute('viewBox', el.sourceViewBox || `0 0 ${sourceWidth} ${sourceHeight}`);
+    inlineSvg.setAttribute('preserveAspectRatio', el.sourcePreserveAspectRatio || 'xMidYMid meet');
+    inlineSvg.setAttribute('overflow', 'visible');
+
+    const parsed = new DOMParser().parseFromString(el.sourceText || '<svg xmlns="http://www.w3.org/2000/svg"></svg>', 'image/svg+xml');
+    const sourceNode = parsed.documentElement;
+
+    if (sourceNode && sourceNode.tagName.toLowerCase() === 'svg') {
+      Array.from(sourceNode.childNodes).forEach((node) => {
+        if (node.nodeType === 1 || (node.nodeType === 3 && node.textContent.trim())) {
+          inlineSvg.appendChild(document.importNode(node, true));
+        }
+      });
+    }
+
+    g.appendChild(inlineSvg);
   }
 
   g.addEventListener('pointerdown', (event) => onElementPointerDown(event, el.id));
@@ -680,9 +1082,10 @@ function renderProperties() {
   dom.selectedLabel.value = item ? `${item.type.toUpperCase()}` : '';
 
   const hasSelection = Boolean(item);
-  dom.propFill.disabled = !hasSelection;
-  dom.propStroke.disabled = !hasSelection;
-  dom.propFontSize.disabled = !hasSelection;
+  const supportsFill = item && !['svg-fragment'].includes(item.type);
+  dom.propFill.disabled = !supportsFill || !hasSelection;
+  dom.propStroke.disabled = !supportsFill || !hasSelection;
+  dom.propFontSize.disabled = !hasSelection || item?.type !== 'text';
   dom.propText.disabled = !hasSelection || item?.type !== 'text';
   dom.bringFront.disabled = !hasSelection;
   dom.sendBack.disabled = !hasSelection;
@@ -697,7 +1100,18 @@ function renderProperties() {
     return;
   }
 
-  dom.selectedLabel.value = item.type === 'text' ? 'テキスト' : item.type === 'rect' ? '四角形' : item.type === 'circle' ? '円' : '画像';
+  if (item.type === 'text') {
+    dom.selectedLabel.value = 'テキスト';
+  } else if (item.type === 'rect') {
+    dom.selectedLabel.value = '四角形';
+  } else if (item.type === 'circle') {
+    dom.selectedLabel.value = '円';
+  } else if (item.type === 'svg-fragment') {
+    dom.selectedLabel.value = 'SVG(高精度取り込み)';
+  } else {
+    dom.selectedLabel.value = '画像';
+  }
+
   dom.propFill.value = item.fill || '#111827';
   dom.propStroke.value = item.stroke || '#0f2f56';
   dom.propFontSize.value = String(item.fontSize || 32);
@@ -709,8 +1123,10 @@ function applyPropertyFromInputs() {
   const item = slide.elements.find((item) => item.id === state.selectedElementId);
   if (!item) return;
 
-  item.fill = dom.propFill.value;
-  item.stroke = dom.propStroke.value;
+  if (item.type !== 'svg-fragment') {
+    item.fill = dom.propFill.value;
+    item.stroke = dom.propStroke.value;
+  }
   item.fontSize = Number(dom.propFontSize.value || 32);
   if (item.type === 'text') item.text = dom.propText.value;
   render();
@@ -792,24 +1208,20 @@ function importSVGFromInput(file) {
     }
 
     const slide = currentSlide();
-    const { source, elements } = parseSVGElements(root);
-    const parsed = scaleAndPositionImportedElements(elements, source);
-    if (!parsed.length) {
-      const fallbackScale = Math.min((slide.width * 0.9) / source.width, (slide.height * 0.9) / source.height);
-      slide.elements.push({
-        id: createId(),
-        type: 'image',
-        x: (slide.width - source.width * fallbackScale) / 2,
-        y: (slide.height - source.height * fallbackScale) / 2,
-        width: source.width * fallbackScale,
-        height: source.height * fallbackScale,
-        url: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(text)}`,
-      });
+    const { source, elements, backgroundColor } = parseSVGElements(root);
+    if (backgroundColor) {
+      slide.background = backgroundColor;
+    }
+
+    const shouldUseRaw = shouldUseSvgFragmentImport(root, elements);
+    if (shouldUseRaw) {
+      addSVGFragmentElement(slide, source, text);
       state.selectedElementId = slide.elements.at(-1).id;
       render();
       return;
     }
 
+    const parsed = scaleAndPositionImportedElements(elements, source);
     for (const item of parsed) {
       const element = { ...item, id: createId() };
       slide.elements.push(element);
@@ -844,6 +1256,18 @@ function downloadBlob(blob, name) {
   document.body.removeChild(link);
 }
 
+function resetState() {
+  const ok = window.confirm('編集内容をすべて削除して初期状態に戻しますか？');
+  if (!ok) return;
+
+  localStorage.removeItem(STORAGE_KEY);
+  state.slides = [createEmptySlide('スライド 1')];
+  state.currentSlideIndex = 0;
+  state.selectedElementId = null;
+  state.pointerState = null;
+  render();
+}
+
 function setupEvents() {
   dom.newSlide.addEventListener('click', newSlide);
   dom.duplicateSlide.addEventListener('click', duplicateSlide);
@@ -867,12 +1291,19 @@ function setupEvents() {
     loadLocal();
     render();
   });
+  dom.resetState.addEventListener('click', resetState);
   dom.exportJSON.addEventListener('click', exportJSON);
+  dom.importJSONButton.addEventListener('click', () => {
+    dom.importJSON.click();
+  });
   dom.importSVG.addEventListener('change', (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
     importSVGFromInput(file);
     event.target.value = '';
+  });
+  dom.importSVGButton.addEventListener('click', () => {
+    dom.importSVG.click();
   });
   dom.exportSVG.addEventListener('click', exportSVG);
   dom.importJSON.addEventListener('change', (event) => {
