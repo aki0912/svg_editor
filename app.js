@@ -1,5 +1,6 @@
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const STORAGE_KEY = 'svg_ppt_like_state_v1';
+const SVG_IMPORT_PADDING_RATIO = 0;
 
 const state = {
   slides: [createEmptySlide('スライド 1')],
@@ -359,6 +360,22 @@ function parseSVGSourceSize(svgRoot) {
   };
 }
 
+function calculateImportFitTransform(source, slide) {
+  const sourceWidth = Math.max(1, source.width);
+  const sourceHeight = Math.max(1, source.height);
+  const widthPadding = Math.max(0, 1 - SVG_IMPORT_PADDING_RATIO * 2);
+  const heightPadding = Math.max(0, 1 - SVG_IMPORT_PADDING_RATIO * 2);
+  const availableWidth = Math.max(1, slide.width * widthPadding);
+  const availableHeight = Math.max(1, slide.height * heightPadding);
+  const scale = Math.min(availableWidth / sourceWidth, availableHeight / sourceHeight);
+
+  return {
+    scale,
+    offsetX: (slide.width - sourceWidth * scale) / 2 - source.minX * scale,
+    offsetY: (slide.height - sourceHeight * scale) / 2 - source.minY * scale,
+  };
+}
+
 function parseTranslateTransform(node) {
   const transform = node.getAttribute('transform');
   if (!transform) return { x: 0, y: 0 };
@@ -490,6 +507,9 @@ function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
   const baseFontSize = parseNumber(getNodeStyleValue(node, 'font-size', 18, svgRoot), 18);
   const baseFontFamily = getNodeStyleValue(node, 'font-family', 'Arial, sans-serif', svgRoot);
   const baseFill = getNodeStyleValue(node, 'fill', '#111827', svgRoot);
+  const baseTextAnchor = getNodeStyleValue(node, 'text-anchor', 'start', svgRoot);
+  const baseDominantBaseline = getNodeStyleValue(node, 'dominant-baseline', 'auto', svgRoot);
+  const baseAlignmentBaseline = getNodeStyleValue(node, 'alignment-baseline', 'auto', svgRoot);
 
   const elements = [];
   let cursorY = baseY;
@@ -522,6 +542,9 @@ function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
       fontSize: spanFontSize,
       fontFamily,
       fill,
+      textAnchor: getNodeStyleValue(span, 'text-anchor', baseTextAnchor, svgRoot),
+          dominantBaseline: getNodeStyleValue(span, 'dominant-baseline', baseDominantBaseline, svgRoot),
+      alignmentBaseline: getNodeStyleValue(span, 'alignment-baseline', baseAlignmentBaseline, svgRoot),
       stroke,
       strokeWidth,
     });
@@ -700,6 +723,9 @@ function parseSVGElements(svgRoot) {
           sourcePreserveAspectRatio: 'xMidYMid meet',
           sourceText: `<svg xmlns="http://www.w3.org/2000/svg">${nodeText}</svg>`,
           fill: getNodeStyleValue(node, 'fill', '#111827', svgRoot),
+          textAnchor: getNodeStyleValue(node, 'text-anchor', 'start', svgRoot),
+          dominantBaseline: getNodeStyleValue(node, 'dominant-baseline', 'auto', svgRoot),
+          alignmentBaseline: getNodeStyleValue(node, 'alignment-baseline', 'auto', svgRoot),
           stroke: getNodeStyleValue(node, 'stroke', 'none', svgRoot),
           strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 0, svgRoot), 0),
         });
@@ -719,6 +745,9 @@ function parseSVGElements(svgRoot) {
         text,
         fontSize,
         fontFamily: getNodeStyleValue(node, 'font-family', 'Arial, sans-serif', svgRoot),
+        textAnchor: getNodeStyleValue(node, 'text-anchor', 'start', svgRoot),
+        dominantBaseline: getNodeStyleValue(node, 'dominant-baseline', 'auto', svgRoot),
+        alignmentBaseline: getNodeStyleValue(node, 'alignment-baseline', 'auto', svgRoot),
         fill: getNodeStyleValue(node, 'fill', '#111827', svgRoot),
         stroke: getNodeStyleValue(node, 'stroke', 'none', svgRoot),
         strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 0, svgRoot), 0),
@@ -750,12 +779,7 @@ function scaleAndPositionImportedElements(elements, source) {
   const slide = currentSlide();
   if (!elements.length) return [];
 
-  const sourceWidth = Math.max(1, source.width);
-  const sourceHeight = Math.max(1, source.height);
-  const scale = Math.min((slide.width * 0.9) / sourceWidth, (slide.height * 0.9) / sourceHeight);
-
-  const offsetX = (slide.width - sourceWidth * scale) / 2 - source.minX * scale;
-  const offsetY = (slide.height - sourceHeight * scale) / 2 - source.minY * scale;
+  const { scale, offsetX, offsetY } = calculateImportFitTransform(source, slide);
 
   return elements.map((item) => {
     const minSize = item.type === 'svg-fragment' && item.isLine ? 1 : 8;
@@ -775,16 +799,13 @@ function scaleAndPositionImportedElements(elements, source) {
 }
 
 function addSVGFragmentElement(slide, source, text) {
-  const scale = Math.min(
-    (slide.width * 0.9) / Math.max(1, source.width),
-    (slide.height * 0.9) / Math.max(1, source.height),
-  );
+  const { scale, offsetX, offsetY } = calculateImportFitTransform(source, slide);
 
   slide.elements.push({
     id: createId(),
     type: 'svg-fragment',
-    x: (slide.width - source.width * scale) / 2 - source.minX * scale,
-    y: (slide.height - source.height * scale) / 2 - source.minY * scale,
+    x: offsetX,
+    y: offsetY,
     width: Math.max(12, source.width * scale),
     height: Math.max(12, source.height * scale),
     sourceWidth: source.width,
@@ -879,7 +900,9 @@ function renderElement(el) {
     text.setAttribute('fill', el.fill || '#111827');
     text.setAttribute('font-size', String(el.fontSize || 32));
     text.setAttribute('font-family', el.fontFamily || 'Arial, sans-serif');
-    text.setAttribute('dominant-baseline', 'hanging');
+    text.setAttribute('text-anchor', el.textAnchor || 'start');
+    text.setAttribute('dominant-baseline', el.dominantBaseline || 'hanging');
+    text.setAttribute('alignment-baseline', el.alignmentBaseline || 'auto');
     text.setAttribute('stroke', el.stroke || 'none');
     text.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 0);
     g.appendChild(text);
