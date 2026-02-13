@@ -36,7 +36,9 @@ const dom = {
   importSVGButton: document.getElementById('import-svg-button'),
   selectedLabel: document.getElementById('selected-label'),
   propFill: document.getElementById('prop-fill'),
+  propFillLabel: document.getElementById('prop-fill-label'),
   propStroke: document.getElementById('prop-stroke'),
+  propStrokeLabel: document.getElementById('prop-stroke-label'),
   propFontSize: document.getElementById('prop-font-size'),
   propText: document.getElementById('prop-text'),
   bringFront: document.getElementById('bring-front'),
@@ -1790,6 +1792,9 @@ function renderProperties() {
 
   const hasSelection = Boolean(item);
   const supportsFill = item && !['svg-fragment'].includes(item.type);
+  const isText = item?.type === 'text';
+  dom.propFillLabel.textContent = isText ? '文字色' : '塗りつぶし';
+  dom.propStrokeLabel.textContent = '枠色';
   dom.propFill.disabled = !supportsFill || !hasSelection;
   dom.propStroke.disabled = !supportsFill || !hasSelection;
   dom.propFontSize.disabled = !hasSelection || item?.type !== 'text';
@@ -1800,6 +1805,8 @@ function renderProperties() {
   dom.deleteElement.disabled = !hasSelection;
 
   if (!item) {
+    dom.propFillLabel.textContent = '塗りつぶし';
+    dom.propStrokeLabel.textContent = '枠色';
     dom.propFill.value = '#000000';
     dom.propStroke.value = '#000000';
     dom.propFontSize.value = '32';
@@ -1830,14 +1837,18 @@ function renderProperties() {
   dom.propText.value = item.text || '';
 }
 
-function applyPropertyFromInputs() {
+function applyPropertyFromInputs(event) {
   const slide = currentSlide();
   const item = slide.elements.find((item) => item.id === state.selectedElementId);
   if (!item) return;
+  const isStrokeInput = event?.target === dom.propStroke;
 
   if (item.type !== 'svg-fragment') {
     item.fill = dom.propFill.value;
     item.stroke = dom.propStroke.value;
+    if (item.type === 'text' && isStrokeInput) {
+      item.strokeWidth = Math.max(1, Number.isFinite(item.strokeWidth) ? item.strokeWidth : 1);
+    }
   }
   item.fontSize = Number(dom.propFontSize.value || 32);
   if (item.type === 'text') item.text = dom.propText.value;
