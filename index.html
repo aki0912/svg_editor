@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SVG PowerPoint-like Slide Editor</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="left">
+        <h1>SVG Slide Editor</h1>
+        <div class="toolbar-group">
+          <button id="new-slide">新規スライド</button>
+          <button id="duplicate-slide">複製</button>
+          <button id="delete-slide">削除</button>
+        </div>
+
+        <div class="toolbar-group">
+          <button id="add-text">テキスト</button>
+          <button id="add-rect">四角</button>
+          <button id="add-circle">丸</button>
+          <button id="add-image">画像</button>
+        </div>
+
+        <ul id="slide-list"></ul>
+
+        <section class="properties">
+          <h2>プロパティ</h2>
+          <label>
+            選択中要素
+            <input id="selected-label" type="text" value="" readonly />
+          </label>
+          <label>
+            塗りつぶし
+            <input id="prop-fill" type="color" disabled />
+          </label>
+          <label>
+            文字色 / 枠色
+            <input id="prop-stroke" type="color" disabled />
+          </label>
+          <label>
+            フォントサイズ
+            <input id="prop-font-size" type="number" min="12" max="120" value="32" disabled />
+          </label>
+          <label>
+            テキスト
+            <input id="prop-text" type="text" disabled placeholder="テキストを選択してください" />
+          </label>
+          <div class="toolbar-group small">
+            <button id="bring-front" disabled>前面へ</button>
+            <button id="send-back" disabled>背面へ</button>
+          </div>
+          <div class="toolbar-group small">
+            <button id="duplicate-element" disabled>要素複製</button>
+            <button id="delete-element" disabled>要素削除</button>
+          </div>
+        </section>
+
+        <section class="actions">
+          <button id="save-state">保存</button>
+          <button id="load-state">復元</button>
+          <button id="export-json">JSON出力</button>
+          <input id="import-json" type="file" accept="application/json" />
+          <button id="export-svg">SVG出力</button>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="status-bar">
+          <span id="slide-title"></span>
+          <span id="instructions">※ 要素をドラッグして移動、端点をドラッグしてサイズ変更</span>
+        </header>
+
+        <section class="canvas-wrap">
+          <svg id="canvas" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="スライドキャンバス"></svg>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js" defer></script>
+  </body>
+</html>
