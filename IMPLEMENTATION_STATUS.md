@@ -83,9 +83,17 @@
 
 ## 現在の未実装（引き続き）
 - リサイズ時スナップの厳密仕様（例えば固定エッジ優先ルールのチューニング）
-- スナップ閾値設定値がUIで保存されるかを確認するE2E
-- alignSnap 名寄せ完了（`src/commands/alignSnap.js` を新規追加し、`app.js` は `EditorAlignSnap` を優先参照）
+- スナップ閾値設定値のブラウザ再読み込み後保持の手動確認
 - ガイドの見え方/色・表示時間の微調整
+
+## 完了（最新）
+- スナップ閾値の設定値を `localStorage` 復元時に反映するよう `loadLocal()` を更新し、インポートJSONでも閾値を復元する実装を追加。
+
+## 進捗更新（alignSnap 名寄せ完了）
+- alignSnap 名寄せを完了扱いへ更新
+  - `app.js` は `window.EditorAlignSnap` を第一候補として `createSnapEngine` を解決する実装を維持
+  - `src/commands/snap.js` は既存の互換エントリとして残し、旧参照を継続可能にする
+- 追加確認: `tests/snapAlias.test.js` で `alignSnap` と `snap` の同一動作を確認
 
 ## カーソル挙動修正（確認対応）
 - 原因: リサイズハンドルのカーソル判定順が角ハンドルでも縦/横側に先取りされ、

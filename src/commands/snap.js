@@ -1,11 +1,16 @@
-(function (global) {
-  if (typeof module !== 'undefined' && typeof module.exports !== 'undefined') {
-    module.exports = require('./alignSnap.js');
-    return;
-  }
+import alignSnap from './alignSnap.js';
 
-  if (!global) return;
-  if (global.EditorAlignSnap && !global.EditorSnap) {
-    global.EditorSnap = global.EditorAlignSnap;
+const api = alignSnap && typeof alignSnap === 'object' ? alignSnap : {};
+
+if (typeof globalThis !== 'undefined' && globalThis) {
+  if (!globalThis.EditorAlignSnap && api && typeof api === 'object') {
+    globalThis.EditorAlignSnap = api;
   }
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+  if (!globalThis.EditorSnap && api && typeof api === 'object') {
+    globalThis.EditorSnap = api;
+  }
+}
+
+export default api;
+export const createSnapEngine = api?.createSnapEngine;
+export const __internals = api?.__internals;

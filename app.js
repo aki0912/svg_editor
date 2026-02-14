@@ -2520,6 +2520,9 @@ function loadLocal() {
 
     state.slides = loaded.slides;
     state.currentSlideIndex = Math.min(Math.max(0, loaded.currentSlideIndex || 0), state.slides.length - 1);
+    if (Object.hasOwn(loaded, 'snapThreshold')) {
+      state.snapThreshold = normalizeSnapThreshold(loaded.snapThreshold);
+    }
     state.selectedElementId = null;
   } catch (error) {
     console.error('保存データの読み込み失敗', error);
@@ -2542,7 +2545,13 @@ function importJSONFromInput(file) {
       }
       state.slides = loaded.slides;
       state.currentSlideIndex = 0;
+      if (Object.hasOwn(loaded, 'snapThreshold')) {
+        state.snapThreshold = normalizeSnapThreshold(loaded.snapThreshold);
+      } else {
+        state.snapThreshold = SNAP_THRESHOLD_DEFAULT;
+      }
       state.selectedElementId = null;
+      applySnapThreshold(state.snapThreshold);
       recordHistorySnapshot();
       render();
     } catch {
