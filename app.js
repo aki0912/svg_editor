@@ -237,6 +237,59 @@ function applyMoveSnap(element, x, y) {
   };
 }
 
+function applyResizeSnap(next, handle, baseBounds) {
+  if (!snapEngine) return next;
+
+  const slide = currentSlide();
+  const result = snapEngine.snapMove({
+    x: next.x,
+    y: next.y,
+    width: next.width,
+    height: next.height,
+    elements: slide.elements,
+    activeElementId: state.pointerState.elementId,
+    slideWidth: slide.width,
+    slideHeight: slide.height,
+    snapThreshold: SNAP_THRESHOLD,
+  });
+
+  activeSnapGuide = {
+    guideX: Number.isFinite(result.guideX) ? result.guideX : null,
+    guideY: Number.isFinite(result.guideY) ? result.guideY : null,
+    hasSnapX: !!result.hasSnapX,
+    hasSnapY: !!result.hasSnapY,
+  };
+
+  const snapped = {
+    x: Number.isFinite(result.x) ? result.x : next.x,
+    y: Number.isFinite(result.y) ? result.y : next.y,
+    width: next.width,
+    height: next.height,
+  };
+
+  if (handle.includes('w')) {
+    const fixedRight = baseBounds.x + baseBounds.width;
+    snapped.width = Math.max(20, fixedRight - snapped.x);
+  }
+
+  if (handle.includes('e')) {
+    const fixedLeft = baseBounds.x;
+    snapped.width = Math.max(20, snapped.x + snapped.width - fixedLeft);
+  }
+
+  if (handle.includes('n')) {
+    const fixedBottom = baseBounds.y + baseBounds.height;
+    snapped.height = Math.max(20, fixedBottom - snapped.y);
+  }
+
+  if (handle.includes('s')) {
+    const fixedTop = baseBounds.y;
+    snapped.height = Math.max(20, snapped.y + snapped.height - fixedTop);
+  }
+
+  return snapped;
+}
+
 function undoHistory() {
   if (!history || typeof history.undo !== 'function') return;
   const snapshot = history.undo();
@@ -1372,7 +1425,7 @@ function renderCanvas() {
 
 function renderSnapGuides(slide) {
   if (!activeSnapGuide) return;
-  if (!state.pointerState || state.pointerState.mode !== 'move') return;
+  if (!state.pointerState || !['move', 'resize'].includes(state.pointerState.mode)) return;
 
   if (activeSnapGuide.hasSnapX) {
     const guide = document.createElementNS(SVG_NS, 'line');
@@ -1535,7 +1588,17 @@ function renderSelection(el) {
     handle.setAttribute('y', y);
     handle.setAttribute('width', size);
     handle.setAttribute('height', size);
-    handle.style.cursor = key.includes('n') || key.includes('s') ? 'ns-resize' : key.includes('e') || key.includes('w') ? 'ew-resize' : 'nwse-resize';
+    if (key === 'nw' || key === 'se') {
+      handle.style.cursor = 'nwse-resize';
+    } else if (key === 'ne' || key === 'sw') {
+      handle.style.cursor = 'nesw-resize';
+    } else if (key === 'n' || key === 's') {
+      handle.style.cursor = 'ns-resize';
+    } else if (key === 'e' || key === 'w') {
+      handle.style.cursor = 'ew-resize';
+    } else {
+      handle.style.cursor = 'nwse-resize';
+    }
     handle.addEventListener('pointerdown', (event) => onHandlePointerDown(event, el.id, key));
     dom.canvas.appendChild(handle);
   }
@@ -1829,20 +1892,16 @@ function onPointerMove(event) {
 
     const next = { ...b };
 
-    if (h.includes('w')) {
-      next.x = Math.min(b.x + b.width - 20, p.x);
-      next.width = Math.max(20, b.width - (next.x - b.x));
-    }
-    if (h.includes('e')) {
-      next.width = Math.max(20, b.width + dx);
-    }
-    if (h.includes('n')) {
-      next.y = Math.min(b.y + b.height - 20, p.y);
-      next.height = Math.max(20, b.height - (next.y - b.y));
-    }
-    if (h.includes('s')) {
-      next.height = Math.max(20, b.height + dy);
-    }
+    if (h.includes('w')) next.x = Math.min(b.x + b.width - 20, p.x);
+    if (h.includes('e')) next.width = Math.max(20, b.width + dx);
+    if (h.includes('n')) next.y = Math.min(b.y + b.height - 20, p.y);
+    if (h.includes('s')) next.height = Math.max(20, b.height + dy);
+
+    const snapped = applyResizeSnap(next, h, b);
+    next.x = snapped.x;
+    next.y = snapped.y;
+    next.width = snapped.width;
+    next.height = snapped.height;
 
     if (element.type === 'text') {
       element.width = next.width;

@@ -553,6 +553,7 @@ input[type="color"]::-webkit-color-swatch {
   stroke: var(--accent-primary);
   stroke-dasharray: 6 4;
   stroke-width: 2;
+  pointer-events: none;
   filter: drop-shadow(0 0 4px var(--accent-glow));
   animation: dash 20s linear infinite;
 }
@@ -574,7 +575,6 @@ input[type="color"]::-webkit-color-swatch {
 
 .selection-handle:hover {
   fill: var(--accent-primary);
-  transform: scale(1.2);
 }
 
 @media (max-width: 1024px) {
