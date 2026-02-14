@@ -88,18 +88,19 @@
         <header class="status-bar">
           <span id="slide-title"></span>
           <span id="instructions">ドラッグして移動 • 端点で拡大縮小 • シングルクリックでテキストを直接編集</span>
-          <div class="history-controls" aria-label="履歴操作">
-            <button id="undo-action" type="button" class="history-btn" disabled>戻る</button>
-            <button id="redo-action" type="button" class="history-btn" disabled>進む</button>
-          </div>
         </header>
 
         <section class="canvas-wrap">
           <svg id="canvas" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="スライドキャンバス"></svg>
+          <div class="history-controls" aria-label="履歴操作">
+            <button id="undo-action" type="button" class="history-btn" disabled>戻る</button>
+            <button id="redo-action" type="button" class="history-btn" disabled>進む</button>
+          </div>
         </section>
       </main>
     </div>
 
+    <script src="src/commands/snap.js"></script>
     <script src="src/commands/history.js"></script>
     <script src="app.js" defer></script>
   </body>

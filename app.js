@@ -3,6 +3,7 @@ const HTML_NS = 'http://www.w3.org/1999/xhtml';
 const STORAGE_KEY = 'svg_ppt_like_state_v1';
 const SVG_IMPORT_PADDING_RATIO = 0;
 const TEXT_EDIT_DRAG_THRESHOLD = 4;
+const SNAP_THRESHOLD = 10;
 
 const state = {
   slides: [createEmptySlide('スライド 1')],
@@ -20,8 +21,20 @@ const history = historyFactory
   ? historyFactory(state, { maxEntries: 200 })
   : createFallbackHistoryManager(state, { maxEntries: 200 });
 
+const snapEngineFactory = typeof window !== 'undefined'
+  && window.EditorSnap
+  && typeof window.EditorSnap.createSnapEngine === 'function'
+    ? window.EditorSnap.createSnapEngine
+    : null;
+const snapEngine = snapEngineFactory
+  ? snapEngineFactory({
+    snapThreshold: SNAP_THRESHOLD,
+  })
+  : null;
+
 let activeTextEditor = null;
 let textMeasureContext = null;
+let activeSnapGuide = null;
 
 const dom = {
   slideList: document.getElementById('slide-list'),
@@ -188,6 +201,40 @@ function updateHistoryControls() {
   if (!history || !dom.undoAction || !dom.redoAction) return;
   dom.undoAction.disabled = !history.canUndo();
   dom.redoAction.disabled = !history.canRedo();
+}
+
+function clearSnapGuideState() {
+  activeSnapGuide = null;
+}
+
+function applyMoveSnap(element, x, y) {
+  if (!snapEngine) return { x, y };
+
+  const slide = currentSlide();
+  const bounds = getElementBounds(element);
+  const result = snapEngine.snapMove({
+    x,
+    y,
+    width: Number.isFinite(bounds.width) ? bounds.width : Number.isFinite(element.width) ? element.width : 0,
+    height: Number.isFinite(bounds.height) ? bounds.height : Number.isFinite(element.height) ? element.height : 0,
+    elements: slide.elements,
+    activeElementId: element.id,
+    slideWidth: slide.width,
+    slideHeight: slide.height,
+    snapThreshold: SNAP_THRESHOLD,
+  });
+
+  activeSnapGuide = {
+    guideX: Number.isFinite(result.guideX) ? result.guideX : null,
+    guideY: Number.isFinite(result.guideY) ? result.guideY : null,
+    hasSnapX: !!result.hasSnapX,
+    hasSnapY: !!result.hasSnapY,
+  };
+
+  return {
+    x: result.x,
+    y: result.y,
+  };
 }
 
 function undoHistory() {
@@ -1319,6 +1366,33 @@ function renderCanvas() {
       renderSelection(target);
     }
   }
+
+  renderSnapGuides(slide);
+}
+
+function renderSnapGuides(slide) {
+  if (!activeSnapGuide) return;
+  if (!state.pointerState || state.pointerState.mode !== 'move') return;
+
+  if (activeSnapGuide.hasSnapX) {
+    const guide = document.createElementNS(SVG_NS, 'line');
+    guide.setAttribute('x1', activeSnapGuide.guideX);
+    guide.setAttribute('y1', 0);
+    guide.setAttribute('x2', activeSnapGuide.guideX);
+    guide.setAttribute('y2', slide.height);
+    guide.classList.add('snap-guide-line');
+    dom.canvas.appendChild(guide);
+  }
+
+  if (activeSnapGuide.hasSnapY) {
+    const guide = document.createElementNS(SVG_NS, 'line');
+    guide.setAttribute('x1', 0);
+    guide.setAttribute('y1', activeSnapGuide.guideY);
+    guide.setAttribute('x2', slide.width);
+    guide.setAttribute('y2', activeSnapGuide.guideY);
+    guide.classList.add('snap-guide-line');
+    dom.canvas.appendChild(guide);
+  }
 }
 
 function renderElement(el) {
@@ -1631,6 +1705,7 @@ function openTextEditorForElement(elementId, point = null) {
 function onElementPointerDown(event, elementId) {
   if (event.button === 2) return;
   event.preventDefault();
+  clearSnapGuideState();
 
   if (activeTextEditor) {
     closeActiveTextEditor({ commit: true, rerender: false });
@@ -1673,6 +1748,7 @@ function onElementPointerDown(event, elementId) {
 function onHandlePointerDown(event, elementId, handle) {
   event.preventDefault();
   event.stopPropagation();
+  clearSnapGuideState();
   if (activeTextEditor) {
     closeActiveTextEditor({ commit: true, rerender: false });
   }
@@ -1714,6 +1790,7 @@ function onPointerMove(event) {
   if (state.pointerState.mode === 'edit-intent') {
     const movedX = Math.abs(p.x - state.pointerState.start.x);
     const movedY = Math.abs(p.y - state.pointerState.start.y);
+    clearSnapGuideState();
     if (movedX > TEXT_EDIT_DRAG_THRESHOLD || movedY > TEXT_EDIT_DRAG_THRESHOLD) {
       state.pointerState = {
         mode: 'move',
@@ -1733,13 +1810,15 @@ function onPointerMove(event) {
   const dy = p.y - state.pointerState.start.y;
 
   if (state.pointerState.mode === 'move') {
-    element.x = state.pointerState.x + dx;
-    element.y = state.pointerState.y + dy;
+    const snapped = applyMoveSnap(element, state.pointerState.x + dx, state.pointerState.y + dy);
+    element.x = snapped.x;
+    element.y = snapped.y;
     render();
     return;
   }
 
   if (state.pointerState.mode === 'resize') {
+    clearSnapGuideState();
     const h = state.pointerState.handle;
     const b = {
       x: state.pointerState.x,
@@ -1788,6 +1867,7 @@ function onPointerMove(event) {
 
 function onPointerUp(event) {
   if (!state.pointerState) return;
+  clearSnapGuideState();
   const shouldRecord = ['move', 'resize'].includes(state.pointerState.mode);
 
   if (state.pointerState.mode === 'edit-intent') {
