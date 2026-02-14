@@ -53,6 +53,8 @@ const dom = {
   bringFront: document.getElementById('bring-front'),
   sendBack: document.getElementById('send-back'),
   instructions: document.getElementById('instructions'),
+  undoAction: document.getElementById('undo-action'),
+  redoAction: document.getElementById('redo-action'),
 };
 
 function createId() {
@@ -180,6 +182,12 @@ function restoreHistorySnapshot(snapshot) {
 
   render();
   saveLocal();
+}
+
+function updateHistoryControls() {
+  if (!history || !dom.undoAction || !dom.redoAction) return;
+  dom.undoAction.disabled = !history.canUndo();
+  dom.redoAction.disabled = !history.canRedo();
 }
 
 function undoHistory() {
@@ -1261,6 +1269,7 @@ function render() {
   renderCanvas();
   renderProperties();
   dom.slideTitle.textContent = `${currentSlide().title} (${state.currentSlideIndex + 1}/${state.slides.length})`;
+  updateHistoryControls();
   saveLocal();
 }
 
@@ -2215,6 +2224,14 @@ function setupEvents() {
   dom.propStroke.addEventListener('input', applyPropertyFromInputs);
   dom.propFontSize.addEventListener('input', applyPropertyFromInputs);
   dom.propText.addEventListener('input', applyPropertyFromInputs);
+
+  dom.undoAction.addEventListener('click', () => {
+    undoHistory();
+  });
+
+  dom.redoAction.addEventListener('click', () => {
+    redoHistory();
+  });
 
   dom.canvas.addEventListener('pointermove', onPointerMove);
   dom.canvas.addEventListener('pointerup', onPointerUp);

@@ -440,6 +440,34 @@ input[type="color"]::-webkit-color-swatch {
   box-shadow: var(--shadow-sm);
 }
 
+.history-controls {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.history-btn {
+  min-width: 84px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, var(--success) 0%, #047857 100%);
+  color: white;
+  border: 1px solid var(--success);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.history-btn:hover {
+  background: linear-gradient(135deg, #047857 0%, #065f46 100%);
+}
+
+.history-btn:disabled {
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+  color: var(--text-muted);
+}
+
 #slide-title {
   color: var(--text-primary);
   font-weight: 600;
