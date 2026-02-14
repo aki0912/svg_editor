@@ -116,11 +116,17 @@ const dom = {
   propStroke: document.getElementById('prop-stroke'),
   propStrokeLabel: document.getElementById('prop-stroke-label'),
   propFontSize: document.getElementById('prop-font-size'),
+  propFontSizeRow: document.getElementById('prop-font-size-row'),
   propTextAlign: document.getElementById('prop-text-align'),
+  propTextAlignRow: document.getElementById('prop-text-align-row'),
   propFontFamily: document.getElementById('prop-font-family'),
+  propFontFamilyRow: document.getElementById('prop-font-family-row'),
   propFontBold: document.getElementById('prop-font-bold'),
+  propFontBoldRow: document.getElementById('prop-font-bold-row'),
   propFontItalic: document.getElementById('prop-font-italic'),
+  propFontItalicRow: document.getElementById('prop-font-italic-row'),
   propText: document.getElementById('prop-text'),
+  propTextRow: document.getElementById('prop-text-row'),
   snapThresholdInput: document.getElementById('snap-threshold'),
   snapThresholdValue: document.getElementById('snap-threshold-value'),
   bringFront: document.getElementById('bring-front'),
@@ -1871,6 +1877,34 @@ function renderSelection(el) {
   }
 }
 
+function isCanvasObjectInteractiveTarget(target) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(
+    target.closest('.canvas-element')
+    || target.closest('.selection-box')
+    || target.closest('.selection-handle')
+    || target.closest('[data-inline-text-editor]')
+    || target.closest('[data-element-id]'),
+  );
+}
+
+function onCanvasPointerDownForDeselect(event) {
+  if (!event) return;
+
+  const target = event.target;
+  if (isCanvasObjectInteractiveTarget(target)) return;
+
+  if (!state.selectedElementId && !activeTextEditor) return;
+
+  if (activeTextEditor) {
+    closeActiveTextEditor({ commit: true, rerender: false });
+    if (state.pointerState) state.pointerState = null;
+  }
+
+  state.selectedElementId = null;
+  render();
+}
+
 function getElementBounds(el) {
   if (el.type === 'text') {
     const approximateWidth = Math.max(120, (el.text || '').length * ((el.fontSize || 32) * 0.6));
@@ -2349,12 +2383,28 @@ function renderProperties() {
   const slide = currentSlide();
   const item = slide.elements.find((item) => item.id === state.selectedElementId);
   const editing = activeTextEditor ? slide.elements.find((e) => e.id === activeTextEditor.elementId) : null;
+  const textPropertyControls = [
+    dom.propFontSizeRow,
+    dom.propTextAlignRow,
+    dom.propFontFamilyRow,
+    dom.propFontBoldRow,
+    dom.propFontItalicRow,
+    dom.propTextRow,
+  ];
+  const setTextPropertyVisibility = (visible) => {
+    textPropertyControls.forEach((node) => {
+      if (node) {
+        node.style.display = visible ? '' : 'none';
+      }
+    });
+  };
 
   dom.selectedLabel.value = item ? `${item.type.toUpperCase()}` : '';
 
   const hasSelection = Boolean(item);
   const supportsFill = item && !['svg-fragment'].includes(item.type);
   const isText = item?.type === 'text';
+  setTextPropertyVisibility(isText);
   dom.propFillLabel.textContent = isText ? '文字色' : '塗りつぶし';
   dom.propStrokeLabel.textContent = '枠色';
   dom.propFill.disabled = !supportsFill || !hasSelection;
@@ -2665,10 +2715,12 @@ function setupEvents() {
   });
 
   dom.canvas.addEventListener('pointermove', onPointerMove);
+  dom.canvas.addEventListener('pointerdown', onCanvasPointerDownForDeselect);
   dom.canvas.addEventListener('pointerup', onPointerUp);
   dom.canvas.addEventListener('pointercancel', onPointerUp);
 
   window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointerdown', onCanvasPointerDownForDeselect);
   window.addEventListener('pointermove', onPointerMove);
 
   window.addEventListener('keydown', (event) => {

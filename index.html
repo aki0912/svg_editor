@@ -45,11 +45,11 @@
             <span id="prop-stroke-label">枠色</span>
             <input id="prop-stroke" type="color" disabled />
           </label>
-          <label>
+          <label id="prop-font-size-row">
             フォントサイズ
             <input id="prop-font-size" type="number" min="12" max="120" value="32" disabled />
           </label>
-          <label>
+          <label id="prop-text-align-row">
             <span>文字揃え</span>
             <select id="prop-text-align" disabled>
               <option value="start">左</option>
@@ -57,7 +57,7 @@
               <option value="end">右</option>
             </select>
           </label>
-          <label>
+          <label id="prop-font-family-row">
             <span>フォント</span>
             <select id="prop-font-family" disabled>
               <option value="Arial, sans-serif">Arial</option>
@@ -68,15 +68,15 @@
               <option value="Courier New, monospace">Courier New</option>
             </select>
           </label>
-          <label class="checkbox-row">
+          <label id="prop-font-bold-row" class="checkbox-row">
             <input id="prop-font-bold" type="checkbox" disabled />
             <span>太字</span>
           </label>
-          <label class="checkbox-row">
+          <label id="prop-font-italic-row" class="checkbox-row">
             <input id="prop-font-italic" type="checkbox" disabled />
             <span>斜体</span>
           </label>
-          <label>
+          <label id="prop-text-row">
             テキスト
             <input id="prop-text" type="text" disabled placeholder="テキストを選択してください" />
           </label>
