@@ -8,13 +8,17 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="app-shell">
-      <aside class="left">
-        <h1>SVG Slide Editor</h1>
-        <section class="panel slide-controls">
-          <h2>スライド操作</h2>
+    <div class="app-shell pptx-layout">
+      <header class="top-ribbon">
+        <div class="ribbon-brand">
+          <h1>SVG Slide Editor</h1>
+          <p>PPTXスタイル編集レイアウト</p>
+        </div>
+
+        <section class="panel ribbon-block slide-controls">
+          <h2>スライド</h2>
           <div class="toolbar-group slide-action-buttons">
-            <button id="new-slide">新規スライド</button>
+            <button id="new-slide">新規</button>
             <button id="duplicate-slide">複製</button>
             <button id="delete-slide">削除</button>
           </div>
@@ -27,11 +31,10 @@
               <option value="two-column">二列レイアウト</option>
             </select>
           </label>
-          <div id="slide-overview" class="slide-overview" aria-label="スライド一覧（サムネイル）"></div>
         </section>
 
-        <section class="panel object-controls">
-          <h2>オブジェクト追加</h2>
+        <section class="panel ribbon-block object-controls">
+          <h2>挿入</h2>
           <div class="toolbar-group">
             <button id="add-text">テキスト</button>
             <button id="add-rect">四角</button>
@@ -44,6 +47,50 @@
           </div>
         </section>
 
+        <section class="panel ribbon-block actions">
+          <h2>入出力</h2>
+          <div class="actions-row actions-row-inline">
+            <span class="actions-label">JSON</span>
+            <button id="import-json-button" type="button" class="action-btn action-import">インポート</button>
+            <button id="export-json" class="action-btn action-export">エクスポート</button>
+            <input id="import-json" type="file" accept="application/json,.json" />
+          </div>
+          <div class="actions-row actions-row-inline">
+            <span class="actions-label">SVG</span>
+            <button id="import-svg-button" type="button" class="action-btn action-import">インポート</button>
+            <button id="export-svg" class="action-btn action-export">エクスポート</button>
+            <input id="import-svg" type="file" accept=".svg,image/svg+xml" />
+          </div>
+          <button id="reset-state">全部リセット</button>
+        </section>
+      </header>
+
+      <aside class="slides-pane">
+        <h2>スライド一覧</h2>
+        <div id="slide-overview" class="slide-overview" aria-label="スライド一覧（サムネイル）"></div>
+      </aside>
+
+      <main class="main">
+        <header class="status-bar">
+          <span id="slide-title"></span>
+          <div class="history-controls" aria-label="履歴操作">
+            <button id="undo-action" type="button" class="history-btn" disabled>戻る</button>
+            <button id="redo-action" type="button" class="history-btn" disabled>進む</button>
+          </div>
+          <div class="slide-nav-inline" aria-label="スライド切り替え">
+            <button id="canvas-prev-slide" type="button">◀</button>
+            <select id="canvas-slide-jump" aria-label="スライド直接選択"></select>
+            <button id="canvas-next-slide" type="button">▶</button>
+          </div>
+          <span id="instructions">ドラッグして移動 • 端点で拡大縮小 • シングルクリックでテキストを直接編集</span>
+        </header>
+
+        <section class="canvas-wrap">
+          <svg id="canvas" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="スライドキャンバス"></svg>
+        </section>
+      </main>
+
+      <aside class="inspector-pane">
         <section class="properties">
           <h2>プロパティ</h2>
           <label>
@@ -148,43 +195,7 @@
             <button id="delete-element" disabled>要素削除</button>
           </div>
         </section>
-
-        <section class="actions">
-          <div class="actions-row actions-row-inline">
-            <span class="actions-label">JSON</span>
-            <button id="import-json-button" type="button" class="action-btn action-import">インポート</button>
-            <button id="export-json" class="action-btn action-export">エクスポート</button>
-            <input id="import-json" type="file" accept="application/json,.json" />
-          </div>
-          <div class="actions-row actions-row-inline">
-            <span class="actions-label">SVG</span>
-            <button id="import-svg-button" type="button" class="action-btn action-import">インポート</button>
-            <button id="export-svg" class="action-btn action-export">エクスポート</button>
-            <input id="import-svg" type="file" accept=".svg,image/svg+xml" />
-          </div>
-          <button id="reset-state">全部リセット</button>
-        </section>
       </aside>
-
-      <main class="main">
-        <header class="status-bar">
-          <span id="slide-title"></span>
-          <div class="slide-nav-inline" aria-label="スライド切り替え">
-            <button id="canvas-prev-slide" type="button">◀</button>
-            <select id="canvas-slide-jump" aria-label="スライド直接選択"></select>
-            <button id="canvas-next-slide" type="button">▶</button>
-          </div>
-          <span id="instructions">ドラッグして移動 • 端点で拡大縮小 • シングルクリックでテキストを直接編集</span>
-        </header>
-
-        <section class="canvas-wrap">
-          <svg id="canvas" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="スライドキャンバス"></svg>
-          <div class="history-controls" aria-label="履歴操作">
-            <button id="undo-action" type="button" class="history-btn" disabled>戻る</button>
-            <button id="redo-action" type="button" class="history-btn" disabled>進む</button>
-          </div>
-        </section>
-      </main>
     </div>
 
     <script src="src/commands/elementCommands.js"></script>
