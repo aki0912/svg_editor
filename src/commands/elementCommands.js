@@ -1,6 +1,8 @@
 (function (global) {
   const DEFAULT_TEXT_FONT_FAMILY = 'Arial, sans-serif';
   const TEXT_LINE_HEIGHT_RATIO = 1.3;
+  const DEFAULT_TEXT_BULLET_TYPE = 'none';
+  const TEXT_BULLET_TYPES = new Set(['none', 'bullet', 'number']);
   let textMeasureContext = null;
 
   function clamp(value, min, max) {
@@ -23,9 +25,58 @@
     return textMeasureContext;
   }
 
-  function getTextLineHeight(fontSize) {
+  function normalizeTextLineSpacing(value, fallback = TEXT_LINE_HEIGHT_RATIO) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return parsed;
+  }
+
+  function normalizeTextLetterSpacing(value, fallback = 0) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    return parsed;
+  }
+
+  function normalizeTextIndent(value, fallback = 0) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return fallback;
+    return parsed;
+  }
+
+  function normalizeTextBulletType(value, fallback = DEFAULT_TEXT_BULLET_TYPE) {
+    if (typeof value === 'string' && TEXT_BULLET_TYPES.has(value)) return value;
+    return fallback;
+  }
+
+  function resolveTextLineOptions(element = {}) {
+    return {
+      lineSpacing: normalizeTextLineSpacing(element.lineSpacing, TEXT_LINE_HEIGHT_RATIO),
+      letterSpacing: normalizeTextLetterSpacing(element.letterSpacing, 0),
+      textIndent: normalizeTextIndent(element.textIndent, 0),
+      bulletType: normalizeTextBulletType(element.bulletType, DEFAULT_TEXT_BULLET_TYPE),
+    };
+  }
+
+  function getTextLinePrefix(lineIndex = 0, bulletType = DEFAULT_TEXT_BULLET_TYPE) {
+    if (bulletType === 'bullet') return '• ';
+    if (bulletType === 'number') return `${lineIndex + 1}. `;
+    return '';
+  }
+
+  function buildTextDisplayLine(line = '', lineIndex = 0, element = {}) {
+    const { bulletType } = resolveTextLineOptions(element);
+    const prefix = getTextLinePrefix(lineIndex, bulletType);
+    return {
+      text: `${prefix}${line || ''}`,
+      prefix,
+      prefixLength: prefix.length,
+    };
+  }
+
+  function getTextLineHeight(fontSize, lineSpacing = TEXT_LINE_HEIGHT_RATIO) {
     const baseSize = Number(fontSize) || 32;
-    return Math.max(16, Math.round(baseSize * TEXT_LINE_HEIGHT_RATIO));
+    const spacing = normalizeTextLineSpacing(lineSpacing, TEXT_LINE_HEIGHT_RATIO);
+    return Math.max(16, Math.round(baseSize * spacing));
   }
 
   function getTextAlignCssValue(textAnchor) {
@@ -130,27 +181,49 @@
   }
 
   function getTextLineWidth(line, fontSize = 32, element = {}) {
+    const lineOptions = resolveTextLineOptions(element);
+    const lineIndex = Number.isInteger(element.__lineIndex) ? element.__lineIndex : 0;
+    const { text } = buildTextDisplayLine(line, lineIndex, lineOptions);
+    const lineLetterSpacing = lineOptions.letterSpacing;
     const ctx = getTextMeasureContext();
-    const safeLine = line || '';
+    const safeLine = String(text);
     const normalizedSize = Number(fontSize) || Number(element.fontSize) || 32;
+    const letterSpacingWidth = Math.max(0, safeLine.length - 1) * lineLetterSpacing;
 
     if (ctx) {
       ctx.font = buildTextFontDescription({
         ...element,
         fontSize: normalizedSize,
       });
-      return Math.max(1, ctx.measureText(safeLine).width);
+      return Math.max(1, ctx.measureText(safeLine).width + letterSpacingWidth);
     }
 
     const avg = /[^\x00-\x7F]/.test(safeLine) ? 1 : 0.62;
-    return Math.max(1, safeLine.length * Math.max(6, normalizedSize * avg));
+    const baseWidth = Math.max(1, safeLine.length * Math.max(6, normalizedSize * avg));
+    return Math.max(1, baseWidth + letterSpacingWidth);
   }
 
   function getTextOffsetForLine(line, targetX, ctx, element = {}) {
     const safeLine = line || '';
     if (!safeLine || targetX <= 0) return 0;
+    const lineOptions = resolveTextLineOptions(element);
+    const letterSpacing = lineOptions.letterSpacing;
+    const fallbackFontSize = Number(element.fontSize) || 32;
+    const measure = (value) => {
+      if (!ctx) return getTextLineWidth(value, fallbackFontSize, {
+        ...element,
+        ...lineOptions,
+      });
+
+      ctx.font = buildTextFontDescription({
+        ...element,
+        ...lineOptions,
+      });
+      return ctx.measureText(value).width + Math.max(0, value.length - 1) * letterSpacing;
+    };
+
     if (!ctx) {
-      const approxCharWidth = getTextLineWidth(safeLine, element.fontSize, element) / safeLine.length;
+      const approxCharWidth = measure(safeLine) / safeLine.length;
       const estimate = Math.round(targetX / Math.max(1, approxCharWidth));
       return clamp(estimate, 0, safeLine.length);
     }
@@ -159,7 +232,7 @@
     let right = safeLine.length;
     while (left < right) {
       const mid = (left + right) >> 1;
-      const measured = ctx.measureText(safeLine.slice(0, mid)).width;
+      const measured = measure(safeLine.slice(0, mid));
       if (measured < targetX) {
         left = mid + 1;
       } else {
@@ -167,8 +240,8 @@
       }
     }
     if (left > 0 && left < safeLine.length) {
-      const widthBefore = ctx.measureText(safeLine.slice(0, left - 1)).width;
-      const widthAt = ctx.measureText(safeLine.slice(0, left)).width;
+      const widthBefore = measure(safeLine.slice(0, left - 1));
+      const widthAt = measure(safeLine.slice(0, left));
       if (Math.abs(targetX - widthBefore) > Math.abs(widthAt - targetX)) {
         return left;
       }
@@ -186,22 +259,28 @@
     if (!lines.length) return 0;
 
     const fontSize = Number(element.fontSize) || 32;
-    const lineHeight = getTextLineHeight(fontSize);
+    const lineOptions = resolveTextLineOptions(element);
+    const lineHeight = getTextLineHeight(fontSize, lineOptions.lineSpacing);
     const textAnchor = element.textAnchor || 'start';
+    const textIndent = lineOptions.textIndent;
     const elementX = Number(element.x) || 0;
     const elementWidth = Number(element.width);
-    const anchorX = textAnchor === 'middle'
+    const anchorX = (textAnchor === 'middle'
       ? elementX + (Number.isFinite(elementWidth) ? elementWidth / 2 : 0)
       : textAnchor === 'end'
         ? elementX + (Number.isFinite(elementWidth) ? elementWidth : 0)
-        : elementX;
+        : elementX) + textIndent;
     const cursorLine = clamp(
       Math.floor((point.y - Number(element.y) - fontSize * 0.25) / lineHeight),
       0,
       lines.length - 1,
     );
 
-    const measuredLineWidths = lines.map((line) => getTextLineWidth(line, fontSize, element));
+    const measuredLineWidths = lines.map((line, index) => getTextLineWidth(line, fontSize, {
+      ...element,
+      ...lineOptions,
+      __lineIndex: index,
+    }));
     const currentLine = lines[cursorLine] || '';
     const currentLineWidth = Math.max(1, measuredLineWidths[cursorLine] || getTextLineWidth(currentLine, fontSize, element));
 
@@ -214,31 +293,44 @@
 
     const ctx = getTextMeasureContext();
     const clampedX = Math.max(0, x);
+    const currentLineDisplay = buildTextDisplayLine(currentLine, cursorLine, lineOptions);
     const localOffset = getTextOffsetForLine(currentLine, clampedX, ctx, {
       ...element,
+      ...lineOptions,
+      __lineIndex: cursorLine,
       fontSize,
     });
+    const displayOffset = Math.max(0, localOffset - currentLineDisplay.prefixLength);
 
     let offset = 0;
     for (let i = 0; i < cursorLine; i += 1) {
       offset += (lines[i] || '').length + 1;
     }
 
-    return clamp(offset + localOffset, 0, (element.text || '').length);
+    const baseOffset = Math.max(0, Math.min(displayOffset, currentLine.length));
+    return clamp(offset + baseOffset, 0, (element.text || '').length);
   }
 
   function estimateTextBoxMetrics(text, fontSize = 32, options = {}) {
+    const lineOptions = resolveTextLineOptions(options);
     const lines = (text || '').split('\n');
     const lineFontSize = Number(fontSize) || 32;
     const textElement = {
       fontFamily: options.fontFamily || DEFAULT_TEXT_FONT_FAMILY,
       fontWeight: options.fontWeight || 'normal',
       fontStyle: options.fontStyle || 'normal',
+      ...lineOptions,
       fontSize: lineFontSize,
     };
-    const lineWidths = lines.map((line) => getTextLineWidth(line, lineFontSize, textElement));
+    const lineWidths = lines.map((line, index) => {
+      const measuredWidth = getTextLineWidth(line, lineFontSize, {
+        ...textElement,
+        __lineIndex: index,
+      });
+      return measuredWidth + Math.max(0, lineOptions.textIndent);
+    });
     const width = Math.max(40, Math.round(Math.max(...lineWidths)));
-    const height = Math.max(16, Math.round(getTextLineHeight(lineFontSize) * Math.max(1, lines.length)));
+    const height = Math.max(16, Math.round(getTextLineHeight(lineFontSize, lineOptions.lineSpacing) * Math.max(1, lines.length)));
 
     return {
       width,
@@ -252,6 +344,7 @@
     getTextLineHeight,
     getTextAlignCssValue,
     buildTextFontDescription,
+    buildTextDisplayLine,
     getTextLineWidth,
     getTextOffsetForLine,
     getTextCaretOffsetFromPoint,

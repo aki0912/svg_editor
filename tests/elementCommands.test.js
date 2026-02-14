@@ -5,6 +5,7 @@ import elementCommandsModule from '../src/commands/elementCommands.js';
 const {
   getTextAlignCssValue,
   getTextLineHeight,
+  buildTextDisplayLine,
   estimateTextBoxMetrics,
   getTextCaretOffsetFromPoint,
   buildTextFontDescription,
@@ -53,6 +54,19 @@ describe('elementCommands text helpers', () => {
     const metrics = estimateTextBoxMetrics('hello\nworld', 24);
     assert.equal(metrics.width >= 40, true);
     assert.equal(metrics.height, 62);
+  });
+
+  it('builds bulleted text lines with formatter', () => {
+    const bulletLine = buildTextDisplayLine('item', 0, { bulletType: 'bullet' });
+    const numberLine = buildTextDisplayLine('item', 2, { bulletType: 'number' });
+    assert.equal(bulletLine.text, '• item');
+    assert.equal(numberLine.text, '3. item');
+  });
+
+  it('grows estimated height with larger line spacing', () => {
+    const compact = estimateTextBoxMetrics('line1\nline2', 24, { lineSpacing: 1.0 });
+    const roomy = estimateTextBoxMetrics('line1\nline2', 24, { lineSpacing: 2.0 });
+    assert.equal(roomy.height > compact.height, true);
   });
 
   it('calculates caret offset for multi-line text', () => {

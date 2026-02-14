@@ -155,3 +155,46 @@
 - 反映状況: `app.js` と `IMPLEMENTATION_STATUS.md` を更新済み
 - テキスト以外の要素選択時は、フォントサイズ/文字揃え/フォント/太字/斜体/テキスト入力欄を非表示にするUI制御を追加
 - オブジェクト以外のクリックで選択解除されるよう、キャンバス外/非オブジェクト領域クリック時の明示制御を追加
+
+## 進捗更新（PPTX比較：1-1 テキスト体裁拡張）
+- テキスト体裁（段落系）を追加実装し、P0実装に接続
+  - `index.html`
+    - テキスト専用プロパティとして「行間」「字間」「インデント」「箇条書き」を追加
+    - テキストのみ表示される制御対象として既存項目に組み込み
+  - `app.js`
+    - 行間/字間/インデント/箇条書きのプロパティ追加、選択/入力反映、保存反映の一連を追加
+    - 描画時（SVG text + inline editor）に反映（`letter-spacing`, `line-height`, `text-indent`）
+    - クリック時キャレット計算・バウンディング再計測の新仕様に接続
+  - `src/commands/elementCommands.js`
+    - `buildTextDisplayLine`、行間・字間・インデント・箇条書き付きテキスト計測の補助を追加
+    - `estimateTextBoxMetrics` と `getTextCaretOffsetFromPoint` の行間反映ロジックを更新
+  - `tests/elementCommands.test.js`
+    - 箇条書きフォーマットと行間変化のテストを追加
+- 次アクション
+  - `1-2. 文字プロパティ一貫性の固定`（文字揃え・フォント系の選択整合性をより強固に）
+
+## 進捗更新（PPTX比較：1-2 文字プロパティ一貫性の固定）
+- 文字系プロパティを選択中・保存中・復元時に常時正規化して、UIと描画状態を同期
+  - `app.js`
+    - `normalizeTextFontSize` / `normalizeTextFontWeight` / `normalizeTextFontStyle` / `normalizeTextAlign` を追加
+    - `normalizeTextElementProperties` と `normalizeTextElementsInSlides` を追加し、復元/インポート/読み込み時に全テキスト要素を正規化
+    - テキストプロパティパネル反映時に値を正規化し、`select` 値不整合を防止
+    - フォント名が既存オプション外のときは `select` に安全登録するフォールバックを追加
+    - 描画・キャレット計算・バウンディング計算・インライン編集で文字属性の正規化値を参照
+- 次アクション
+  - `2-1. ショートカット実装`（`Ctrl/Cmd + C/V/X`, `Delete`, `Undo/Redo`, `Esc`）
+
+## 進捗更新（PPTX比較：2-1 ショートカット実装）
+- 既存のキー操作を実行時ショートカットとして統合
+  - `app.js`
+    - `copySelectedElement` / `cutSelectedElement` / `pasteElementFromClipboard` を追加し、内部クリップボードで要素の複製を実装
+    - `Ctrl/Cmd + C/X/V` を全体キー操作へ追加
+    - 既存の `Undo/Redo` 処理と衝突しないようメタキー＋修飾キー条件を統一
+    - `Delete`（および `Backspace`）で選択要素削除を維持
+    - `Esc` でテキスト編集のキャンセルまたは選択解除を実装
+  - ショートカット実行時の整合性確保のため、必要時にテキストエディタを確実に確定クローズ
+- 受け入れ条件
+  - `Ctrl/Cmd + C/V/X`, `Delete`, `Undo/Redo`, `Esc` が期待どおり動作
+  - 既存の履歴と選択状態と競合しない（Undo/Redo と重複操作なし）
+- 次アクション
+  - `2-2. 選択状態遷移の堅牢化`（クリック外し、キャンバス外クリック、プロパティ操作時、テキスト編集時）

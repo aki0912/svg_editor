@@ -17,9 +17,32 @@ const DEFAULT_TEXT_FONT_FAMILY = textCommands && textCommands.DEFAULT_TEXT_FONT_
 const TEXT_LINE_HEIGHT_RATIO = textCommands && textCommands.TEXT_LINE_HEIGHT_RATIO
   ? textCommands.TEXT_LINE_HEIGHT_RATIO
   : 1.3;
+const TEXT_LINE_SPACING_DEFAULT = TEXT_LINE_HEIGHT_RATIO;
+const TEXT_LETTER_SPACING_DEFAULT = 0;
+const TEXT_INDENT_DEFAULT = 0;
+const TEXT_BULLET_DEFAULT = 'none';
+const TEXT_BULLET_TYPES = new Set(['none', 'bullet', 'number']);
+const TEXT_STYLE_FONT_SIZE_DEFAULT = 32;
 const normalizeFontFamilyValue = textCommands && typeof textCommands.normalizeFontFamilyValue === 'function'
   ? textCommands.normalizeFontFamilyValue
   : (value) => String(value || DEFAULT_TEXT_FONT_FAMILY).trim() || DEFAULT_TEXT_FONT_FAMILY;
+const buildTextDisplayLine = textCommands && typeof textCommands.buildTextDisplayLine === 'function'
+  ? textCommands.buildTextDisplayLine
+  : (line = '', lineIndex = 0, options = {}) => {
+    const bulletType = options.bulletType || TEXT_BULLET_DEFAULT;
+    const normalizedBullet = TEXT_BULLET_TYPES.has(bulletType) ? bulletType : TEXT_BULLET_DEFAULT;
+    const prefix = normalizedBullet === 'bullet'
+      ? '• '
+      : normalizedBullet === 'number'
+        ? `${lineIndex + 1}. `
+        : '';
+
+    return {
+      text: `${prefix}${line || ''}`,
+      prefix,
+      prefixLength: prefix.length,
+    };
+  };
 function normalizeFontFamilyInputValue(fontFamily = '') {
   const normalized = normalizeFontFamilyValue(String(fontFamily || '').trim());
   const parts = normalized
@@ -46,7 +69,13 @@ const estimateTextBoxMetrics = textCommands && typeof textCommands.estimateTextB
     };
     const lineWidths = lines.map((line) => getTextLineWidth(line, lineFontSize, textElement));
     const width = Math.max(40, Math.round(Math.max(...lineWidths)));
-    const height = Math.max(16, Math.round(getTextLineHeight(lineFontSize) * Math.max(1, lines.length)));
+    const height = Math.max(
+      16,
+      Math.round(
+        getTextLineHeight(lineFontSize, Number(options.lineSpacing || TEXT_LINE_SPACING_DEFAULT))
+          * Math.max(1, lines.length),
+      ),
+    );
 
     return {
       width,
@@ -89,6 +118,8 @@ let activeTextEditor = null;
 let textMeasureContext = null;
 let activeSnapGuide = null;
 let snapGuideFadeTimer = null;
+let clipboardElement = null;
+let clipboardPasteOffset = 20;
 
 const dom = {
   slideList: document.getElementById('slide-list'),
@@ -125,6 +156,14 @@ const dom = {
   propFontBoldRow: document.getElementById('prop-font-bold-row'),
   propFontItalic: document.getElementById('prop-font-italic'),
   propFontItalicRow: document.getElementById('prop-font-italic-row'),
+  propTextLineSpacing: document.getElementById('prop-text-line-spacing'),
+  propTextLineSpacingRow: document.getElementById('prop-text-line-spacing-row'),
+  propTextLetterSpacing: document.getElementById('prop-text-letter-spacing'),
+  propTextLetterSpacingRow: document.getElementById('prop-text-letter-spacing-row'),
+  propTextIndent: document.getElementById('prop-text-indent'),
+  propTextIndentRow: document.getElementById('prop-text-indent-row'),
+  propTextBullet: document.getElementById('prop-text-bullet'),
+  propTextBulletRow: document.getElementById('prop-text-bullet-row'),
   propText: document.getElementById('prop-text'),
   propTextRow: document.getElementById('prop-text-row'),
   bringFront: document.getElementById('bring-front'),
@@ -136,6 +175,94 @@ const dom = {
 
 function createId() {
   return (crypto.randomUUID && crypto.randomUUID()) || `id-${Date.now()}-${Math.floor(Math.random() * 99999)}`;
+}
+
+function normalizeTextLineSpacing(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return TEXT_LINE_SPACING_DEFAULT;
+  return parsed;
+}
+
+function normalizeTextLetterSpacing(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return TEXT_LETTER_SPACING_DEFAULT;
+  return parsed;
+}
+
+function normalizeTextIndent(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return TEXT_INDENT_DEFAULT;
+  return parsed;
+}
+
+function normalizeTextBulletType(value) {
+  return TEXT_BULLET_TYPES.has(value) ? value : TEXT_BULLET_DEFAULT;
+}
+
+function normalizeTextFontSize(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return TEXT_STYLE_FONT_SIZE_DEFAULT;
+  return parsed;
+}
+
+function normalizeTextFontWeight(value) {
+  const normalized = String(value || 'normal').toLowerCase().trim();
+  if (normalized === 'bold' || normalized === 'bolder' || (/^\d+$/.test(normalized) && Number(normalized) >= 600)) {
+    return 'bold';
+  }
+  return 'normal';
+}
+
+function normalizeTextFontStyle(value) {
+  const normalized = String(value || 'normal').toLowerCase().trim();
+  return normalized === 'italic' || normalized === 'oblique' ? 'italic' : 'normal';
+}
+
+function normalizeTextAlign(value) {
+  if (value === 'middle' || value === 'center') return 'middle';
+  if (value === 'end' || value === 'right') return 'end';
+  if (value === 'start' || value === 'left') return 'start';
+  return 'start';
+}
+
+function normalizeFontFamilyPrimaryToken(fontFamily) {
+  const normalized = normalizeFontFamilyInputValue(fontFamily || DEFAULT_TEXT_FONT_FAMILY);
+  return normalized.split(',')[0]?.trim() || DEFAULT_TEXT_FONT_FAMILY;
+}
+
+function ensureFontFamilySelectOption(fontFamily) {
+  if (!dom || !dom.propFontFamily) return normalizeFontFamilyInputValue(fontFamily || DEFAULT_TEXT_FONT_FAMILY);
+
+  const normalized = normalizeFontFamilyInputValue(fontFamily || DEFAULT_TEXT_FONT_FAMILY);
+  const exists = Array.from(dom.propFontFamily.options).some((option) => option.value === normalized);
+  if (!exists) {
+    const option = document.createElement('option');
+    option.value = normalized;
+    option.textContent = normalizeFontFamilyPrimaryToken(normalized);
+    dom.propFontFamily.appendChild(option);
+  }
+  return normalized;
+}
+
+function normalizeTextElementProperties(item) {
+  if (!item || item.type !== 'text') return;
+  item.fontSize = normalizeTextFontSize(item.fontSize);
+  item.fontFamily = normalizeFontFamilyInputValue(item.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
+  item.fontWeight = normalizeTextFontWeight(item.fontWeight);
+  item.fontStyle = normalizeTextFontStyle(item.fontStyle);
+  item.textAnchor = normalizeTextAlign(item.textAnchor || 'start');
+  item.lineSpacing = normalizeTextLineSpacing(item.lineSpacing || TEXT_LINE_SPACING_DEFAULT);
+  item.letterSpacing = normalizeTextLetterSpacing(item.letterSpacing || TEXT_LETTER_SPACING_DEFAULT);
+  item.textIndent = normalizeTextIndent(item.textIndent || TEXT_INDENT_DEFAULT);
+  item.bulletType = normalizeTextBulletType(item.bulletType || TEXT_BULLET_DEFAULT);
+}
+
+function normalizeTextElementsInSlides(slides) {
+  if (!Array.isArray(slides)) return;
+  for (const slide of slides) {
+    if (!slide || !Array.isArray(slide.elements)) continue;
+    slide.elements.forEach(normalizeTextElementProperties);
+  }
 }
 
 function createFallbackHistoryManager(initialState, options = {}) {
@@ -253,6 +380,7 @@ function restoreHistorySnapshot(snapshot) {
   }
 
   state.slides = slides;
+  normalizeTextElementsInSlides(state.slides);
   state.currentSlideIndex = currentIndex;
   state.selectedElementId = selectedValid ? snapshot.selectedElementId : null;
   state.pointerState = null;
@@ -1522,20 +1650,24 @@ function getTextMeasureContext() {
   return textMeasureContext;
 }
 
-function getTextLineHeight(fontSize) {
+function getTextLineHeight(fontSize, lineSpacing = TEXT_LINE_SPACING_DEFAULT) {
   if (textCommands && typeof textCommands.getTextLineHeight === 'function') {
-    return textCommands.getTextLineHeight(fontSize);
+    return textCommands.getTextLineHeight(fontSize, lineSpacing);
   }
   const baseSize = Number(fontSize) || 32;
-  return Math.max(16, Math.round(baseSize * TEXT_LINE_HEIGHT_RATIO));
+  const safeSpacing = normalizeTextLineSpacing(lineSpacing);
+  return Math.max(16, Math.round(baseSize * safeSpacing));
 }
 
 function getTextAlignCssValue(textAnchor) {
   if (textCommands && typeof textCommands.getTextAlignCssValue === 'function') {
     return textCommands.getTextAlignCssValue(textAnchor);
   }
+  if (textAnchor === 'start' || textAnchor === 'left') return 'left';
   if (textAnchor === 'middle') return 'center';
   if (textAnchor === 'end') return 'right';
+  if (textAnchor === 'center') return 'center';
+  if (textAnchor === 'right') return 'right';
   return 'left';
 }
 
@@ -1552,8 +1684,8 @@ function buildTextFontDescription(element) {
     return textCommands.buildTextFontDescription(element);
   }
   return [
-    element?.fontStyle || 'normal',
-    element?.fontWeight || 'normal',
+    normalizeTextFontStyle(element?.fontStyle || 'normal'),
+    normalizeTextFontWeight(element?.fontWeight || 'normal'),
     `${element?.fontSize || 32}px`,
     element?.fontFamily || DEFAULT_TEXT_FONT_FAMILY,
   ].join(' ');
@@ -1594,26 +1726,44 @@ function getTextCaretOffsetFromPoint(element, point) {
   if (textCommands && typeof textCommands.getTextCaretOffsetFromPoint === 'function') {
     return textCommands.getTextCaretOffsetFromPoint(element, point);
   }
+  normalizeTextElementProperties(element);
+
   if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
     return (element.text || '').length;
   }
 
-  const fontSize = Number(element.fontSize || 32);
-  const lineHeight = getTextLineHeight(fontSize);
+  const fontSize = normalizeTextFontSize(element.fontSize);
+  const lineHeight = getTextLineHeight(fontSize, normalizeTextLineSpacing(element.lineSpacing || TEXT_LINE_SPACING_DEFAULT));
+  const bulletType = normalizeTextBulletType(element.bulletType || TEXT_BULLET_DEFAULT);
+  const textIndent = normalizeTextIndent(element.textIndent || TEXT_INDENT_DEFAULT);
+  const letterSpacing = normalizeTextLetterSpacing(element.letterSpacing || TEXT_LETTER_SPACING_DEFAULT);
   const lines = (element.text || '').split('\n');
-  const textAnchor = element.textAnchor || 'start';
+  const textAlign = normalizeTextAlign(element.textAnchor || 'start');
   if (!lines.length) return 0;
 
-  const measuredLineWidths = lines.map((line) => getTextLineWidth(line, fontSize, element));
+  const measuredLineWidths = lines.map((line, index) => {
+    return getTextLineWidth(line, fontSize, {
+      ...element,
+      letterSpacing,
+      __lineIndex: index,
+      bulletType,
+    });
+  });
+  const elementWidth = Number(element.width);
+  const baseX = textAlign === 'middle'
+    ? Number(element.x || 0) + (Number.isFinite(elementWidth) ? elementWidth / 2 : 0)
+    : textAlign === 'end'
+      ? Number(element.x || 0) + (Number.isFinite(elementWidth) ? elementWidth : 0)
+      : Number(element.x || 0);
   const cursorLine = clamp(Math.floor((point.y - element.y - fontSize * 0.25) / lineHeight), 0, lines.length - 1);
   const currentLine = lines[cursorLine] || '';
   const currentLineWidth = Math.max(1, measuredLineWidths[cursorLine] || getTextLineWidth(currentLine, fontSize, element));
 
-  let x = point.x - element.x;
+  let x = point.x - (baseX + textIndent);
 
-  if (textAnchor === 'middle') {
+  if (textAlign === 'middle') {
     x -= (currentLineWidth + 1) / 2;
-  } else if (textAnchor === 'end') {
+  } else if (textAlign === 'end') {
     x -= currentLineWidth;
   }
 
@@ -1622,23 +1772,37 @@ function getTextCaretOffsetFromPoint(element, point) {
   ctx.font = buildTextFontDescription(element);
 
   const clampedX = Math.max(0, x);
-  const localOffset = getTextOffsetForLine(currentLine, clampedX, ctx, element);
+  const currentLineDisplay = buildTextDisplayLine(currentLine, cursorLine, { bulletType });
+  const localOffset = getTextOffsetForLine(currentLineDisplay.text, clampedX, ctx, {
+    ...element,
+    fontSize,
+    fontWeight: normalizeTextFontWeight(element.fontWeight),
+    fontStyle: normalizeTextFontStyle(element.fontStyle),
+    letterSpacing,
+  });
+  const contentOffset = Math.max(0, localOffset - currentLineDisplay.prefixLength);
 
   let offset = 0;
   for (let i = 0; i < cursorLine; i += 1) {
     const line = lines[i] || '';
     offset += line.length + 1;
   }
-  return clamp(offset + localOffset, 0, element.text.length);
+  const currentLineLength = (currentLine || '').length;
+  return clamp(offset + Math.min(contentOffset, currentLineLength), 0, element.text.length);
 }
 
 function syncTextElementHeightFromContent(element) {
   if (!element || element.type !== 'text') return;
+  normalizeTextElementProperties(element);
 
   const metrics = estimateTextBoxMetrics((element.text || ''), Number(element.fontSize) || 32, {
     fontFamily: element.fontFamily || DEFAULT_TEXT_FONT_FAMILY,
-    fontWeight: element.fontWeight || 'normal',
-    fontStyle: element.fontStyle || 'normal',
+    fontWeight: normalizeTextFontWeight(element.fontWeight),
+    fontStyle: normalizeTextFontStyle(element.fontStyle),
+    lineSpacing: element.lineSpacing || TEXT_LINE_SPACING_DEFAULT,
+    letterSpacing: element.letterSpacing || TEXT_LETTER_SPACING_DEFAULT,
+    textIndent: element.textIndent || TEXT_INDENT_DEFAULT,
+    bulletType: element.bulletType || TEXT_BULLET_DEFAULT,
   });
 
   const nextHeight = Math.max(12, metrics.height);
@@ -1763,39 +1927,49 @@ function renderElement(el) {
   g.classList.add('canvas-element');
 
   if (el.type === 'text') {
-    const textAnchor = el.textAnchor || 'start';
+    normalizeTextElementProperties(el);
+    const textAnchor = normalizeTextAlign(el.textAnchor || 'start');
+    const fontSize = normalizeTextFontSize(el.fontSize);
     const baseX = Number(el.x) || 0;
     const elementWidth = Number(el.width);
+    const lineSpacing = normalizeTextLineSpacing(el.lineSpacing || TEXT_LINE_SPACING_DEFAULT);
+    const letterSpacing = normalizeTextLetterSpacing(el.letterSpacing || TEXT_LETTER_SPACING_DEFAULT);
+    const textIndent = normalizeTextIndent(el.textIndent || TEXT_INDENT_DEFAULT);
+    const bulletType = normalizeTextBulletType(el.bulletType || TEXT_BULLET_DEFAULT);
+    const fontWeight = normalizeTextFontWeight(el.fontWeight);
+    const fontStyle = normalizeTextFontStyle(el.fontStyle);
     const anchorX = textAnchor === 'middle'
       ? baseX + (Number.isFinite(elementWidth) ? elementWidth / 2 : 0)
       : textAnchor === 'end'
         ? baseX + (Number.isFinite(elementWidth) ? elementWidth : 0)
         : baseX;
+    const anchorOffsetX = anchorX + textIndent;
     const text = document.createElementNS(SVG_NS, 'text');
     const fontFamily = normalizeFontFamilyValue(el.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
     const textLines = (el.text || '').split('\n');
-    const fontSize = Number(el.fontSize) || 32;
-    const lineHeight = getTextLineHeight(fontSize);
-    const lineX = anchorX;
+    const lineHeight = getTextLineHeight(fontSize, lineSpacing);
+    const lineX = anchorOffsetX;
 
     textLines.forEach((line, index) => {
       const tspan = document.createElementNS(SVG_NS, 'tspan');
+      const displayLine = buildTextDisplayLine(line, index, { bulletType });
       if (index > 0) {
         tspan.setAttribute('x', lineX);
         tspan.setAttribute('dy', String(lineHeight));
       }
-      tspan.textContent = line;
+      tspan.textContent = displayLine.text;
       text.appendChild(tspan);
     });
 
-    text.setAttribute('x', anchorX);
-    text.setAttribute('y', el.y + el.fontSize);
+    text.setAttribute('x', lineX);
+    text.setAttribute('y', (Number(el.y) || 0) + fontSize);
     text.setAttribute('fill', el.fill || '#111827');
     text.setAttribute('font-size', String(fontSize));
     text.setAttribute('font-family', fontFamily);
-    text.setAttribute('font-weight', el.fontWeight || 'normal');
-    text.setAttribute('font-style', el.fontStyle || 'normal');
+    text.setAttribute('font-weight', fontWeight);
+    text.setAttribute('font-style', fontStyle);
     text.setAttribute('text-anchor', textAnchor);
+    text.setAttribute('letter-spacing', String(letterSpacing));
     text.setAttribute('dominant-baseline', el.dominantBaseline || 'hanging');
     text.setAttribute('alignment-baseline', el.alignmentBaseline || 'auto');
     text.setAttribute('stroke', el.stroke || 'none');
@@ -1971,12 +2145,23 @@ function onCanvasPointerDownForDeselect(event) {
 
 function getElementBounds(el) {
   if (el.type === 'text') {
-    const approximateWidth = Math.max(120, (el.text || '').length * ((el.fontSize || 32) * 0.6));
+    normalizeTextElementProperties(el);
+    const fontSize = Number(el.fontSize) || TEXT_STYLE_FONT_SIZE_DEFAULT;
+    const metrics = estimateTextBoxMetrics(el.text || '', fontSize, {
+      fontFamily: el.fontFamily || DEFAULT_TEXT_FONT_FAMILY,
+      fontWeight: normalizeTextFontWeight(el.fontWeight),
+      fontStyle: normalizeTextFontStyle(el.fontStyle),
+      lineSpacing: el.lineSpacing || TEXT_LINE_SPACING_DEFAULT,
+      letterSpacing: el.letterSpacing || TEXT_LETTER_SPACING_DEFAULT,
+      textIndent: el.textIndent || TEXT_INDENT_DEFAULT,
+      bulletType: el.bulletType || TEXT_BULLET_DEFAULT,
+    });
+
     return {
       x: el.x,
       y: el.y,
-      width: el.width || approximateWidth,
-      height: el.height || ((el.fontSize || 32) + 12),
+      width: Math.max(el.width || 120, metrics.width),
+      height: Math.max(el.height || metrics.height, metrics.height),
     };
   }
 
@@ -2025,6 +2210,7 @@ function openTextEditorForElement(elementId, point = null) {
   const slide = currentSlide();
   const element = slide.elements.find((item) => item.id === elementId);
   if (!element || element.type !== 'text') return;
+  normalizeTextElementProperties(element);
 
   if (activeTextEditor && activeTextEditor.elementId === elementId) {
     if (activeTextEditor.textarea) activeTextEditor.textarea.focus();
@@ -2054,6 +2240,9 @@ function openTextEditorForElement(elementId, point = null) {
   const host = document.createElementNS(HTML_NS, 'div');
   host.style.width = '100%';
   host.style.height = '100%';
+  const editorLineSpacing = normalizeTextLineSpacing(element.lineSpacing);
+  const editorLetterSpacing = normalizeTextLetterSpacing(element.letterSpacing);
+  const editorTextIndent = normalizeTextIndent(element.textIndent);
 
   const textarea = document.createElementNS(HTML_NS, 'textarea');
   textarea.value = element.text || '';
@@ -2071,12 +2260,14 @@ function openTextEditorForElement(elementId, point = null) {
     'box-sizing:border-box;',
     'background:rgba(255,255,255,0.98);',
     `color:${element.fill || '#111827'};`,
-    `font-size:${element.fontSize || 32}px;`,
+    `font-size:${element.fontSize || TEXT_STYLE_FONT_SIZE_DEFAULT}px;`,
     `font-family:${fontFamily};`,
-    `font-weight:${element.fontWeight || 'normal'};`,
-    `font-style:${element.fontStyle || 'normal'};`,
-    `text-align:${getTextAlignCssValue(element.textAnchor || 'start')};`,
-    'line-height:1.2;',
+    `font-weight:${normalizeTextFontWeight(element.fontWeight)};`,
+    `font-style:${normalizeTextFontStyle(element.fontStyle)};`,
+    `text-align:${getTextAlignCssValue(normalizeTextAlign(element.textAnchor || 'start'))};`,
+    `line-height:${editorLineSpacing};`,
+    `letter-spacing:${editorLetterSpacing}px;`,
+    `text-indent:${editorTextIndent}px;`,
     'white-space:pre-wrap;',
     'resize:none;',
     'outline:none;',
@@ -2322,9 +2513,14 @@ function addElement(type) {
       fontFamily: DEFAULT_TEXT_FONT_FAMILY,
       fontWeight: 'normal',
       fontStyle: 'normal',
+      lineSpacing: TEXT_LINE_SPACING_DEFAULT,
+      letterSpacing: TEXT_LETTER_SPACING_DEFAULT,
+      textIndent: TEXT_INDENT_DEFAULT,
+      bulletType: TEXT_BULLET_DEFAULT,
       textAnchor: 'start',
       fill: '#111827',
     };
+    normalizeTextElementProperties(textElement);
     syncTextElementHeightFromContent(textElement);
     slide.elements.push(textElement);
   }
@@ -2431,6 +2627,55 @@ function deleteElement() {
   render();
 }
 
+function copySelectedElement() {
+  if (!state.selectedElementId) return false;
+  const slide = currentSlide();
+  const source = slide.elements.find((item) => item.id === state.selectedElementId);
+  if (!source) return false;
+
+  clipboardElement = JSON.parse(JSON.stringify(source));
+  clipboardPasteOffset = 20;
+  return true;
+}
+
+function cutSelectedElement() {
+  const copied = copySelectedElement();
+  if (!copied) return false;
+  deleteElement();
+  return true;
+}
+
+function pasteElementFromClipboard() {
+  if (!clipboardElement) return false;
+  const slide = currentSlide();
+
+  const copy = JSON.parse(JSON.stringify(clipboardElement));
+  const baseX = Number(copy.x);
+  const baseY = Number(copy.y);
+  copy.id = createId();
+  copy.x = (Number.isFinite(baseX) ? baseX : 0) + clipboardPasteOffset;
+  copy.y = (Number.isFinite(baseY) ? baseY : 0) + clipboardPasteOffset;
+  clipboardPasteOffset += 20;
+
+  normalizeTextElementProperties(copy);
+  slide.elements.push(copy);
+  state.selectedElementId = copy.id;
+  if (copy.type === 'text') {
+    syncTextElementHeightFromContent(copy);
+  }
+  recordHistorySnapshot();
+  render();
+  return true;
+}
+
+function closeTextEditorForGlobalShortcut() {
+  if (!activeTextEditor) return;
+  closeActiveTextEditor({ commit: true, rerender: false });
+  if (state.pointerState) {
+    state.pointerState = null;
+  }
+}
+
 function setZOrder(direction) {
   if (!state.selectedElementId) return;
   const slide = currentSlide();
@@ -2449,6 +2694,10 @@ function setZOrder(direction) {
 function renderProperties() {
   const slide = currentSlide();
   const item = slide.elements.find((item) => item.id === state.selectedElementId);
+  if (item?.type === 'text') {
+    normalizeTextElementProperties(item);
+    ensureFontFamilySelectOption(item.fontFamily);
+  }
   const editing = activeTextEditor ? slide.elements.find((e) => e.id === activeTextEditor.elementId) : null;
   const textPropertyControls = [
     dom.propFontSizeRow,
@@ -2456,6 +2705,10 @@ function renderProperties() {
     dom.propFontFamilyRow,
     dom.propFontBoldRow,
     dom.propFontItalicRow,
+    dom.propTextLineSpacingRow,
+    dom.propTextLetterSpacingRow,
+    dom.propTextIndentRow,
+    dom.propTextBulletRow,
     dom.propTextRow,
   ];
   const setTextPropertyVisibility = (visible) => {
@@ -2481,6 +2734,10 @@ function renderProperties() {
   dom.propFontFamily.disabled = !hasSelection || item?.type !== 'text';
   dom.propFontBold.disabled = !hasSelection || item?.type !== 'text';
   dom.propFontItalic.disabled = !hasSelection || item?.type !== 'text';
+  dom.propTextLineSpacing.disabled = !hasSelection || item?.type !== 'text';
+  dom.propTextLetterSpacing.disabled = !hasSelection || item?.type !== 'text';
+  dom.propTextIndent.disabled = !hasSelection || item?.type !== 'text';
+  dom.propTextBullet.disabled = !hasSelection || item?.type !== 'text';
   dom.propText.disabled = !hasSelection || item?.type !== 'text';
   dom.bringFront.disabled = !hasSelection;
   dom.sendBack.disabled = !hasSelection;
@@ -2497,6 +2754,10 @@ function renderProperties() {
     dom.propFontFamily.value = DEFAULT_TEXT_FONT_FAMILY;
     dom.propFontBold.checked = false;
     dom.propFontItalic.checked = false;
+    dom.propTextLineSpacing.value = String(TEXT_LINE_SPACING_DEFAULT);
+    dom.propTextLetterSpacing.value = String(TEXT_LETTER_SPACING_DEFAULT);
+    dom.propTextIndent.value = String(TEXT_INDENT_DEFAULT);
+    dom.propTextBullet.value = TEXT_BULLET_DEFAULT;
     dom.propText.value = '';
     return;
   }
@@ -2515,11 +2776,17 @@ function renderProperties() {
 
   dom.propFill.value = item.fill || '#111827';
   dom.propStroke.value = item.stroke || '#0f2f56';
-  dom.propFontSize.value = String(item.fontSize || 32);
-  dom.propTextAlign.value = item.textAnchor || 'start';
-  dom.propFontFamily.value = normalizeFontFamilyInputValue(item.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
-  dom.propFontBold.checked = (item.fontWeight || 'normal') === 'bold';
-  dom.propFontItalic.checked = (item.fontStyle || 'normal') === 'italic';
+  dom.propFontSize.value = String(item.type === 'text' ? item.fontSize : 32);
+  dom.propTextAlign.value = item.type === 'text' ? item.textAnchor : 'start';
+  dom.propFontFamily.value = item.type === 'text'
+    ? ensureFontFamilySelectOption(item.fontFamily)
+    : ensureFontFamilySelectOption(DEFAULT_TEXT_FONT_FAMILY);
+  dom.propFontBold.checked = item.type === 'text' ? item.fontWeight === 'bold' : false;
+  dom.propFontItalic.checked = item.type === 'text' ? item.fontStyle === 'italic' : false;
+  dom.propTextLineSpacing.value = String(normalizeTextLineSpacing(item.lineSpacing || TEXT_LINE_SPACING_DEFAULT));
+  dom.propTextLetterSpacing.value = String(normalizeTextLetterSpacing(item.letterSpacing || TEXT_LETTER_SPACING_DEFAULT));
+  dom.propTextIndent.value = String(normalizeTextIndent(item.textIndent || TEXT_INDENT_DEFAULT));
+  dom.propTextBullet.value = normalizeTextBulletType(item.bulletType || TEXT_BULLET_DEFAULT);
   if (editing && editing.id === item.id) {
     dom.propText.value = activeTextEditor?.textarea?.value || '';
     dom.propText.disabled = true;
@@ -2541,12 +2808,17 @@ function applyPropertyFromInputs(event) {
       item.strokeWidth = Math.max(1, Number.isFinite(item.strokeWidth) ? item.strokeWidth : 1);
     }
   }
-  item.fontSize = Number(dom.propFontSize.value || 32);
   if (item.type === 'text') {
-    item.textAnchor = dom.propTextAlign.value || 'start';
+    item.fontSize = normalizeTextFontSize(dom.propFontSize.value);
+    item.textAnchor = normalizeTextAlign(dom.propTextAlign.value || 'start');
     item.fontFamily = normalizeFontFamilyInputValue(dom.propFontFamily.value || DEFAULT_TEXT_FONT_FAMILY);
-    item.fontWeight = dom.propFontBold.checked ? 'bold' : 'normal';
-    item.fontStyle = dom.propFontItalic.checked ? 'italic' : 'normal';
+    item.fontWeight = normalizeTextFontWeight(dom.propFontBold.checked ? 'bold' : 'normal');
+    item.fontStyle = normalizeTextFontStyle(dom.propFontItalic.checked ? 'italic' : 'normal');
+    item.lineSpacing = normalizeTextLineSpacing(dom.propTextLineSpacing.value);
+    item.letterSpacing = normalizeTextLetterSpacing(dom.propTextLetterSpacing.value);
+    item.textIndent = normalizeTextIndent(dom.propTextIndent.value);
+    item.bulletType = normalizeTextBulletType(dom.propTextBullet.value);
+    ensureFontFamilySelectOption(item.fontFamily);
     syncTextElementHeightFromContent(item);
   }
   if (item.type === 'text') item.text = dom.propText.value;
@@ -2568,6 +2840,7 @@ function loadLocal() {
 
     state.slides = loaded.slides;
     state.currentSlideIndex = Math.min(Math.max(0, loaded.currentSlideIndex || 0), state.slides.length - 1);
+    normalizeTextElementsInSlides(state.slides);
     state.selectedElementId = null;
   } catch (error) {
     console.error('保存データの読み込み失敗', error);
@@ -2589,6 +2862,7 @@ function importJSONFromInput(file) {
         return;
       }
       state.slides = loaded.slides;
+      normalizeTextElementsInSlides(state.slides);
       state.currentSlideIndex = 0;
       state.selectedElementId = null;
       recordHistorySnapshot();
@@ -2646,6 +2920,7 @@ function importSVGFromInput(file) {
     }
 
     const parsed = scaleAndPositionImportedElements(elements, source);
+    normalizeTextElementsInSlides([{ elements: parsed }]);
     for (const item of parsed) {
       const element = { ...item, id: createId() };
       slide.elements.push(element);
@@ -2767,6 +3042,10 @@ function setupEvents() {
   dom.propFontFamily?.addEventListener('change', applyPropertyFromInputs);
   dom.propFontBold?.addEventListener('change', applyPropertyFromInputs);
   dom.propFontItalic?.addEventListener('change', applyPropertyFromInputs);
+  dom.propTextLineSpacing?.addEventListener('change', applyPropertyFromInputs);
+  dom.propTextLetterSpacing?.addEventListener('change', applyPropertyFromInputs);
+  dom.propTextIndent?.addEventListener('change', applyPropertyFromInputs);
+  dom.propTextBullet?.addEventListener('change', applyPropertyFromInputs);
   dom.propText.addEventListener('input', applyPropertyFromInputs);
 
   dom.undoAction.addEventListener('click', () => {
@@ -2790,8 +3069,13 @@ function setupEvents() {
     const targetTag = document.activeElement?.tagName?.toLowerCase();
     const isTextControl = targetTag === 'input' || targetTag === 'textarea';
     const key = event.key?.toLowerCase();
+    const isShortcut = event.metaKey || event.ctrlKey;
     const isUndoShortcut = (event.metaKey || event.ctrlKey) && !event.altKey && !isTextControl && key === 'z';
     const isRedoShortcut = (event.metaKey || event.ctrlKey) && !isTextControl && (key === 'y' || (event.shiftKey && key === 'z'));
+    const isCopyShortcut = isShortcut && !isTextControl && key === 'c' && !event.altKey;
+    const isCutShortcut = isShortcut && !isTextControl && key === 'x' && !event.altKey;
+    const isPasteShortcut = isShortcut && !isTextControl && key === 'v' && !event.altKey;
+    const isDeleteShortcut = !isTextControl && (event.key === 'Delete' || event.key === 'Backspace');
 
     if (isUndoShortcut) {
       event.preventDefault();
@@ -2805,6 +3089,43 @@ function setupEvents() {
       return;
     }
 
+    if (isCopyShortcut) {
+      event.preventDefault();
+      closeTextEditorForGlobalShortcut();
+      copySelectedElement();
+      return;
+    }
+
+    if (isCutShortcut) {
+      event.preventDefault();
+      closeTextEditorForGlobalShortcut();
+      cutSelectedElement();
+      return;
+    }
+
+    if (isPasteShortcut) {
+      event.preventDefault();
+      closeTextEditorForGlobalShortcut();
+      pasteElementFromClipboard();
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      if (activeTextEditor) {
+        closeActiveTextEditor({ commit: false, rerender: false });
+        render();
+        return;
+      }
+
+      if (state.selectedElementId || state.pointerState) {
+        state.selectedElementId = null;
+        state.pointerState = null;
+        render();
+      }
+      return;
+    }
+
     if (activeTextEditor && event.key === 'Enter') {
       if (!isTextControl || (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)) {
         closeActiveTextEditor({ commit: true, rerender: false });
@@ -2812,8 +3133,7 @@ function setupEvents() {
       return;
     }
 
-    if (event.key === 'Delete' || event.key === 'Backspace') {
-      if (isTextControl) return;
+    if (isDeleteShortcut) {
       if (activeTextEditor) {
         closeActiveTextEditor({ commit: true, rerender: false });
         return;
