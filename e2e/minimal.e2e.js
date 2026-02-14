@@ -50,6 +50,12 @@ async function getElementIds(page) {
   });
 }
 
+async function getCanvasElementIds(page) {
+  return page.evaluate(() => Array.from(document.querySelectorAll('#canvas .canvas-element[data-element-id]'))
+    .map((node) => node.getAttribute('data-element-id'))
+    .filter((id) => typeof id === 'string' && id.trim().length > 0));
+}
+
 async function getLastElementId(page) {
   const ids = await getElementIds(page);
   if (!ids.length) {
@@ -432,4 +438,82 @@ test('追加5: キーボードショートカットでUndo/Redo/Deleteが動作�
   await clickElementCenter(page, lastId);
   await page.keyboard.press('Delete');
   await expect.poll(async () => (await getElementIds(page)).length).toBe(beforeCount - 1);
+});
+
+test('追加6: Undo後に新規操作するとRedoが無効化される', async ({ page }) => {
+  await page.locator('#add-rect').click();
+  const afterAddCount = (await getElementIds(page)).length;
+
+  await page.locator('#undo-action').click();
+  await expect.poll(async () => (await getElementIds(page)).length).toBe(afterAddCount - 1);
+
+  await page.locator('#add-circle').click();
+  await expect(page.locator('#redo-action')).toBeDisabled();
+});
+
+test('追加7: Cmd/Ctrl+C/Vで要素複製されID重複が発生しない', async ({ page }) => {
+  const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+  await page.locator('#add-rect').click();
+  const targetId = await getLastElementId(page);
+  await clickElementCenter(page, targetId);
+
+  const beforeRawIds = await getCanvasElementIds(page);
+  await page.keyboard.press(`${modifier}+c`);
+  await page.keyboard.press(`${modifier}+v`);
+
+  const afterRawIds = await getCanvasElementIds(page);
+  expect(afterRawIds.length).toBeGreaterThan(beforeRawIds.length);
+  expect(new Set(afterRawIds).size).toBe(afterRawIds.length);
+});
+
+test('追加8: スライド複製後に編集しても元スライドへ影響しない', async ({ page }) => {
+  await page.locator('#add-rect').click();
+  const originalId = await getLastElementId(page);
+  const originalGeometry = await getElementGeometry(page, originalId);
+
+  await page.locator('#duplicate-slide').click();
+  const duplicatedId = await getLastElementId(page);
+  await dragElementBy(page, duplicatedId, { x: 140, y: 80 });
+  const duplicatedGeometry = await getElementGeometry(page, duplicatedId);
+  expect(duplicatedGeometry.x).toBeGreaterThan(originalGeometry.x + 40);
+
+  await page.locator('#canvas-prev-slide').click();
+  const backGeometry = await getElementGeometry(page, originalId);
+  expect(Math.abs(backGeometry.x - originalGeometry.x)).toBeLessThanOrEqual(2);
+  expect(Math.abs(backGeometry.y - originalGeometry.y)).toBeLessThanOrEqual(2);
+});
+
+test('追加9: テキスト編集中のBackspaceで要素は削除されない', async ({ page }) => {
+  await page.locator('#add-text').click();
+  const textId = await getLastElementId(page);
+  const beforeCount = (await getElementIds(page)).length;
+
+  await clickElementCenter(page, textId);
+  const center = await getElementCenter(page, textId);
+  const metrics = await getCanvasMetrics(page);
+  const centerPage = svgPointToPage(metrics, center);
+  await page.mouse.dblclick(centerPage.x, centerPage.y);
+
+  const editorSelector = '#canvas textarea.inline-textarea, #canvas textarea, #canvas [contenteditable="true"], #canvas input[type="text"]';
+  const editor = page.locator(editorSelector).first();
+  await expect(editor).toBeVisible();
+  await editor.fill('ABCDE');
+  await page.keyboard.press('Backspace');
+
+  await expect(editor).toBeVisible();
+  await expect.poll(async () => (await getElementIds(page)).length).toBe(beforeCount);
+});
+
+test('追加10: 要素複製ボタンと要素削除ボタンで件数が整合する', async ({ page }) => {
+  await page.locator('#add-rect').click();
+  const targetId = await getLastElementId(page);
+  await clickElementCenter(page, targetId);
+
+  const beforeCount = (await getElementIds(page)).length;
+  await page.locator('#duplicate-element').click();
+  const afterDuplicateCount = (await getElementIds(page)).length;
+  expect(afterDuplicateCount).toBeGreaterThan(beforeCount);
+
+  await page.locator('#delete-element').click();
+  await expect.poll(async () => (await getElementIds(page)).length).toBe(beforeCount);
 });
