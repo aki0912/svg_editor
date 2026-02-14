@@ -127,6 +127,7 @@ let activeSnapGuide = null;
 let snapGuideFadeTimer = null;
 let clipboardElements = [];
 let clipboardPasteOffset = 20;
+let canvasViewportFitFrame = null;
 
 const dom = {
   slideOverview: document.getElementById('slide-overview'),
@@ -2157,10 +2158,61 @@ function syncTextElementHeightFromContent(element) {
   }
 }
 
+function getCurrentSlideAspectRatio() {
+  const slide = currentSlide();
+  const width = Number(slide?.width);
+  const height = Number(slide?.height);
+  if (Number.isFinite(width) && width > 0 && Number.isFinite(height) && height > 0) {
+    return width / height;
+  }
+  return 4 / 3;
+}
+
+function fitCanvasToViewport() {
+  if (!dom.canvas) return;
+  const canvasWrap = dom.canvas.closest('.canvas-wrap');
+  if (!canvasWrap) return;
+
+  const styles = window.getComputedStyle(canvasWrap);
+  const paddingX = (Number.parseFloat(styles.paddingLeft) || 0) + (Number.parseFloat(styles.paddingRight) || 0);
+  const paddingY = (Number.parseFloat(styles.paddingTop) || 0) + (Number.parseFloat(styles.paddingBottom) || 0);
+  const availableWidth = canvasWrap.clientWidth - paddingX;
+  const availableHeight = canvasWrap.clientHeight - paddingY;
+
+  if (!Number.isFinite(availableWidth) || !Number.isFinite(availableHeight)) return;
+  if (availableWidth <= 0 || availableHeight <= 0) return;
+
+  const aspectRatio = getCurrentSlideAspectRatio();
+  const maxDisplayWidth = 1024;
+  let targetWidth = Math.min(availableWidth, maxDisplayWidth);
+  let targetHeight = targetWidth / aspectRatio;
+
+  if (targetHeight > availableHeight) {
+    targetHeight = availableHeight;
+    targetWidth = targetHeight * aspectRatio;
+  }
+
+  if (!Number.isFinite(targetWidth) || !Number.isFinite(targetHeight)) return;
+
+  const widthPx = Math.max(120, Math.floor(targetWidth));
+  const heightPx = Math.max(90, Math.floor(targetHeight));
+  dom.canvas.style.width = `${widthPx}px`;
+  dom.canvas.style.height = `${heightPx}px`;
+}
+
+function scheduleCanvasViewportFit() {
+  if (canvasViewportFitFrame != null) return;
+  canvasViewportFitFrame = window.requestAnimationFrame(() => {
+    canvasViewportFitFrame = null;
+    fitCanvasToViewport();
+  });
+}
+
 function render() {
   closeActiveTextEditor({ commit: true, rerender: false });
   renderSlideList();
   renderCanvas();
+  scheduleCanvasViewportFit();
   renderProperties();
   dom.slideTitle.textContent = `${currentSlide().title} (${state.currentSlideIndex + 1}/${state.slides.length})`;
   updateHistoryControls();
@@ -4312,6 +4364,7 @@ function setupEvents() {
   window.addEventListener('pointerup', onPointerUp);
   window.addEventListener('pointerdown', onCanvasPointerDownForDeselect);
   window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('resize', scheduleCanvasViewportFit);
 
   window.addEventListener('keydown', (event) => {
     const targetTag = document.activeElement?.tagName?.toLowerCase();
