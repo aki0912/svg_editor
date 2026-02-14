@@ -193,8 +193,49 @@ async function getNorthWestHandle(page, elementId) {
 }
 
 test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      localStorage.clear();
+    } catch (_error) {
+      // noop
+    }
+  });
   await page.goto('/index.html');
 });
+
+async function getElementText(page, elementId) {
+  return page.evaluate((id) => {
+    const group = document.querySelector(`#canvas [data-element-id="${id}"]`);
+    if (!group) return null;
+    const textNode = group.querySelector('text');
+    if (!textNode) return null;
+    const tspans = Array.from(textNode.querySelectorAll('tspan'));
+    if (tspans.length) {
+      return tspans.map((node) => node.textContent || '').join('\n');
+    }
+    return textNode.textContent || '';
+  }, elementId);
+}
+
+async function getElementFill(page, elementId) {
+  return page.evaluate((id) => {
+    const group = document.querySelector(`#canvas [data-element-id="${id}"]`);
+    if (!group) return null;
+    const target = group.querySelector('rect,ellipse,circle,polygon,path');
+    if (!target) return null;
+    return String(target.getAttribute('fill') || '').toLowerCase();
+  }, elementId);
+}
+
+async function getElementFontFamily(page, elementId) {
+  return page.evaluate((id) => {
+    const group = document.querySelector(`#canvas [data-element-id="${id}"]`);
+    if (!group) return null;
+    const textNode = group.querySelector('text');
+    if (!textNode) return null;
+    return String(textNode.getAttribute('font-family') || '');
+  }, elementId);
+}
 
 test('最小1: オブジェクト選択/解除（空白クリック含む）', async ({ page }) => {
   await page.locator('#add-rect').click();
@@ -293,4 +334,102 @@ test('最小5: スライド切替UIと一覧の同期', async ({ page }) => {
 
   await page.locator('#slide-overview > *').nth(1).click();
   await expect.poll(async () => select.evaluate((el) => el.selectedIndex)).toBe(1);
+});
+
+test('追加1: Escapeでテキスト編集キャンセル時に未確定変更を保存しない', async ({ page }) => {
+  await page.locator('#add-text').click();
+  const id = await getLastElementId(page);
+  const beforeText = await getElementText(page, id);
+
+  await clickElementCenter(page, id);
+  const center = await getElementCenter(page, id);
+  const metrics = await getCanvasMetrics(page);
+  const centerPage = svgPointToPage(metrics, center);
+  await page.mouse.dblclick(centerPage.x, centerPage.y);
+
+  const editorSelector = '#canvas textarea.inline-textarea, #canvas textarea, #canvas [contenteditable="true"], #canvas input[type="text"]';
+  const editor = page.locator(editorSelector).first();
+  await expect(editor).toBeVisible();
+  await editor.fill('キャンセルで破棄されるテキスト');
+  await page.keyboard.press('Escape');
+
+  await expect.poll(async () => page.locator(editorSelector).count()).toBe(0);
+  const afterText = await getElementText(page, id);
+  expect(afterText).toBe(beforeText);
+});
+
+test('追加2: テキストのフォント変更が描画へ反映される', async ({ page }) => {
+  await page.locator('#add-text').click();
+  const id = await getLastElementId(page);
+  await clickElementCenter(page, id);
+
+  await expect(page.locator('#prop-font-family')).toBeEnabled();
+  await page.locator('#prop-font-family').selectOption('Meiryo, sans-serif');
+
+  await expect.poll(async () => await getElementFontFamily(page, id)).toContain('Meiryo');
+  await expect.poll(async () => (await page.locator('#selected-label').inputValue()).trim().length).toBeGreaterThan(0);
+});
+
+test('追加3: プロパティ操作中に選択状態が維持される', async ({ page }) => {
+  await page.locator('#add-rect').click();
+  const id = await getLastElementId(page);
+  await clickElementCenter(page, id);
+
+  const beforeLabel = await page.locator('#selected-label').inputValue();
+  await expect(page.locator('#prop-fill')).toBeEnabled();
+  await page.locator('#prop-fill').evaluate((input) => {
+    input.value = '#ff0000';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+
+  await expect.poll(async () => (await page.locator('#selected-label').inputValue()).trim().length).toBeGreaterThan(0);
+  const afterLabel = await page.locator('#selected-label').inputValue();
+  expect(afterLabel).toBe(beforeLabel);
+  await expect.poll(async () => await getElementFill(page, id)).toBe('#ff0000');
+});
+
+test('追加4: スライド削除の境界ケースでインデックスが安定する', async ({ page }) => {
+  const select = page.locator('#canvas-slide-jump');
+
+  await expect.poll(async () => select.locator('option').count()).toBe(1);
+  await expect.poll(async () => select.evaluate((el) => el.selectedIndex)).toBe(0);
+
+  await page.locator('#new-slide').click();
+  await page.locator('#new-slide').click();
+  await expect.poll(async () => select.locator('option').count()).toBe(3);
+  await expect.poll(async () => select.evaluate((el) => el.selectedIndex)).toBe(2);
+
+  await page.locator('#delete-slide').click();
+  await expect.poll(async () => select.locator('option').count()).toBe(2);
+  await expect.poll(async () => select.evaluate((el) => el.selectedIndex)).toBe(1);
+
+  await page.locator('#canvas-prev-slide').click();
+  await expect.poll(async () => select.evaluate((el) => el.selectedIndex)).toBe(0);
+  await page.locator('#delete-slide').click();
+  await expect.poll(async () => select.locator('option').count()).toBe(1);
+  await expect.poll(async () => select.evaluate((el) => el.selectedIndex)).toBe(0);
+  await page.locator('#delete-slide').click();
+  await expect.poll(async () => select.locator('option').count()).toBe(1);
+  await expect.poll(async () => select.evaluate((el) => el.selectedIndex)).toBe(0);
+});
+
+test('追加5: キーボードショートカットでUndo/Redo/Deleteが動作する', async ({ page }) => {
+  const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+  const redoCombo = `${modifier}+y`;
+
+  await page.locator('#add-rect').click();
+  const beforeCount = (await getElementIds(page)).length;
+  expect(beforeCount).toBeGreaterThan(0);
+
+  await page.keyboard.press(`${modifier}+z`);
+  await expect.poll(async () => (await getElementIds(page)).length).toBe(beforeCount - 1);
+
+  await page.keyboard.press(redoCombo);
+  await expect.poll(async () => (await getElementIds(page)).length).toBe(beforeCount);
+
+  const lastId = await getLastElementId(page);
+  await clickElementCenter(page, lastId);
+  await page.keyboard.press('Delete');
+  await expect.poll(async () => (await getElementIds(page)).length).toBe(beforeCount - 1);
 });
