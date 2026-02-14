@@ -1712,12 +1712,20 @@ function renderElement(el) {
   g.classList.add('canvas-element');
 
   if (el.type === 'text') {
+    const textAnchor = el.textAnchor || 'start';
+    const baseX = Number(el.x) || 0;
+    const elementWidth = Number(el.width);
+    const anchorX = textAnchor === 'middle'
+      ? baseX + (Number.isFinite(elementWidth) ? elementWidth / 2 : 0)
+      : textAnchor === 'end'
+        ? baseX + (Number.isFinite(elementWidth) ? elementWidth : 0)
+        : baseX;
     const text = document.createElementNS(SVG_NS, 'text');
     const fontFamily = normalizeFontFamilyValue(el.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
     const textLines = (el.text || '').split('\n');
     const fontSize = Number(el.fontSize) || 32;
     const lineHeight = getTextLineHeight(fontSize);
-    const lineX = el.x;
+    const lineX = anchorX;
 
     textLines.forEach((line, index) => {
       const tspan = document.createElementNS(SVG_NS, 'tspan');
@@ -1729,14 +1737,14 @@ function renderElement(el) {
       text.appendChild(tspan);
     });
 
-    text.setAttribute('x', el.x);
+    text.setAttribute('x', anchorX);
     text.setAttribute('y', el.y + el.fontSize);
     text.setAttribute('fill', el.fill || '#111827');
     text.setAttribute('font-size', String(fontSize));
     text.setAttribute('font-family', fontFamily);
     text.setAttribute('font-weight', el.fontWeight || 'normal');
     text.setAttribute('font-style', el.fontStyle || 'normal');
-    text.setAttribute('text-anchor', el.textAnchor || 'start');
+    text.setAttribute('text-anchor', textAnchor);
     text.setAttribute('dominant-baseline', el.dominantBaseline || 'hanging');
     text.setAttribute('alignment-baseline', el.alignmentBaseline || 'auto');
     text.setAttribute('stroke', el.stroke || 'none');
@@ -1888,11 +1896,16 @@ function isCanvasObjectInteractiveTarget(target) {
   );
 }
 
+function isPropertyPanelTarget(target) {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest('.properties'));
+}
+
 function onCanvasPointerDownForDeselect(event) {
   if (!event) return;
 
   const target = event.target;
-  if (isCanvasObjectInteractiveTarget(target)) return;
+  if (isCanvasObjectInteractiveTarget(target) || isPropertyPanelTarget(target)) return;
 
   if (!state.selectedElementId && !activeTextEditor) return;
 

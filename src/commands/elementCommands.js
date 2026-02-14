@@ -187,6 +187,14 @@
 
     const fontSize = Number(element.fontSize) || 32;
     const lineHeight = getTextLineHeight(fontSize);
+    const textAnchor = element.textAnchor || 'start';
+    const elementX = Number(element.x) || 0;
+    const elementWidth = Number(element.width);
+    const anchorX = textAnchor === 'middle'
+      ? elementX + (Number.isFinite(elementWidth) ? elementWidth / 2 : 0)
+      : textAnchor === 'end'
+        ? elementX + (Number.isFinite(elementWidth) ? elementWidth : 0)
+        : elementX;
     const cursorLine = clamp(
       Math.floor((point.y - Number(element.y) - fontSize * 0.25) / lineHeight),
       0,
@@ -197,8 +205,7 @@
     const currentLine = lines[cursorLine] || '';
     const currentLineWidth = Math.max(1, measuredLineWidths[cursorLine] || getTextLineWidth(currentLine, fontSize, element));
 
-    const textAnchor = element.textAnchor || 'start';
-    let x = point.x - Number(element.x);
+    let x = point.x - anchorX;
     if (textAnchor === 'middle') {
       x -= (currentLineWidth + 1) / 2;
     } else if (textAnchor === 'end') {
