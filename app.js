@@ -23,6 +23,12 @@ const TEXT_INDENT_DEFAULT = 0;
 const TEXT_BULLET_DEFAULT = 'none';
 const TEXT_BULLET_TYPES = new Set(['none', 'bullet', 'number']);
 const TEXT_STYLE_FONT_SIZE_DEFAULT = 32;
+const SLIDE_TEMPLATE_TITLES = {
+  blank: '空白',
+  title: 'タイトル',
+  'title-body': 'タイトル+本文',
+  'two-column': '二列',
+};
 const normalizeFontFamilyValue = textCommands && typeof textCommands.normalizeFontFamilyValue === 'function'
   ? textCommands.normalizeFontFamilyValue
   : (value) => String(value || DEFAULT_TEXT_FONT_FAMILY).trim() || DEFAULT_TEXT_FONT_FAMILY;
@@ -135,6 +141,7 @@ const dom = {
   addDiamond: document.getElementById('add-diamond'),
   addImage: document.getElementById('add-image'),
   newSlide: document.getElementById('new-slide'),
+  slideTemplate: document.getElementById('slide-template'),
   duplicateSlide: document.getElementById('duplicate-slide'),
   deleteSlide: document.getElementById('delete-slide'),
   duplicateElement: document.getElementById('duplicate-element'),
@@ -367,6 +374,164 @@ function createEmptySlide(title = '新規スライド') {
     background: '#ffffff',
     elements: [],
   };
+}
+
+function getSelectedSlideTemplateId() {
+  if (!dom.slideTemplate) return 'blank';
+  const value = dom.slideTemplate.value;
+  return value && Object.prototype.hasOwnProperty.call(SLIDE_TEMPLATE_TITLES, value) ? value : 'blank';
+}
+
+function createSlideTemplateElements(templateId) {
+  const safe = Object.prototype.hasOwnProperty.call(SLIDE_TEMPLATE_TITLES, templateId) ? templateId : 'blank';
+  const baseX = 68;
+  const baseY = 64;
+  const width = 824;
+
+  if (safe === 'title') {
+    return [{
+      id: createId(),
+      type: 'text',
+      x: baseX,
+      y: baseY,
+      width: width,
+      height: 120,
+      text: 'タイトルを入力',
+      fontSize: 52,
+      fontFamily: DEFAULT_TEXT_FONT_FAMILY,
+      fontWeight: 'bold',
+      fontStyle: 'normal',
+      lineSpacing: 1.1,
+      letterSpacing: 0,
+      textIndent: 0,
+      bulletType: TEXT_BULLET_DEFAULT,
+      textAnchor: 'start',
+      fill: '#111827',
+    }];
+  }
+
+  if (safe === 'title-body') {
+    return [
+      {
+        id: createId(),
+        type: 'text',
+        x: baseX,
+        y: baseY,
+        width,
+        height: 120,
+        text: 'タイトルを入力',
+        fontSize: 52,
+        fontFamily: DEFAULT_TEXT_FONT_FAMILY,
+        fontWeight: 'bold',
+        fontStyle: 'normal',
+        lineSpacing: 1.1,
+        letterSpacing: 0,
+        textIndent: 0,
+        bulletType: TEXT_BULLET_DEFAULT,
+        textAnchor: 'start',
+        fill: '#111827',
+      },
+      {
+        id: createId(),
+        type: 'text',
+        x: baseX,
+        y: 220,
+        width,
+        height: 460,
+        text: '本文を入力',
+        fontSize: 38,
+        fontFamily: DEFAULT_TEXT_FONT_FAMILY,
+        fontWeight: 'normal',
+        fontStyle: 'normal',
+        lineSpacing: 1.3,
+        letterSpacing: 0,
+        textIndent: 0,
+        bulletType: TEXT_BULLET_DEFAULT,
+        textAnchor: 'start',
+        fill: '#111827',
+      },
+    ];
+  }
+
+  if (safe === 'two-column') {
+    const columnWidth = (width - 32) / 2;
+    return [
+      {
+        id: createId(),
+        type: 'text',
+        x: baseX,
+        y: baseY,
+        width,
+        height: 96,
+        text: 'タイトルを入力',
+        fontSize: 44,
+        fontFamily: DEFAULT_TEXT_FONT_FAMILY,
+        fontWeight: 'bold',
+        fontStyle: 'normal',
+        lineSpacing: 1.1,
+        letterSpacing: 0,
+        textIndent: 0,
+        bulletType: TEXT_BULLET_DEFAULT,
+        textAnchor: 'start',
+        fill: '#111827',
+      },
+      {
+        id: createId(),
+        type: 'text',
+        x: baseX,
+        y: 200,
+        width: columnWidth,
+        height: 500,
+        text: '左カラム',
+        fontSize: 34,
+        fontFamily: DEFAULT_TEXT_FONT_FAMILY,
+        fontWeight: 'normal',
+        fontStyle: 'normal',
+        lineSpacing: 1.3,
+        letterSpacing: 0,
+        textIndent: 0,
+        bulletType: TEXT_BULLET_DEFAULT,
+        textAnchor: 'start',
+        fill: '#111827',
+      },
+      {
+        id: createId(),
+        type: 'text',
+        x: baseX + columnWidth + 32,
+        y: 200,
+        width: columnWidth,
+        height: 500,
+        text: '右カラム',
+        fontSize: 34,
+        fontFamily: DEFAULT_TEXT_FONT_FAMILY,
+        fontWeight: 'normal',
+        fontStyle: 'normal',
+        lineSpacing: 1.3,
+        letterSpacing: 0,
+        textIndent: 0,
+        bulletType: TEXT_BULLET_DEFAULT,
+        textAnchor: 'start',
+        fill: '#111827',
+      },
+    ];
+  }
+
+  return [];
+}
+
+function createSlideFromTemplate(title = '新規スライド', templateId = 'blank') {
+  const slide = createEmptySlide(title);
+  slide.template = templateId;
+  slide.elements = createSlideTemplateElements(templateId).map((item) => {
+    if (item.type === 'text') {
+      const textItem = { ...item };
+      normalizeTextElementProperties(textItem);
+      syncTextElementHeightFromContent(textItem);
+      return textItem;
+    }
+    return { ...item };
+  });
+  return slide;
 }
 
 function currentSlide() {
@@ -3063,7 +3228,8 @@ function addElement(type) {
 }
 
 function newSlide() {
-  state.slides.push(createEmptySlide(`スライド ${state.slides.length + 1}`));
+  const templateId = getSelectedSlideTemplateId();
+  state.slides.push(createSlideFromTemplate(`スライド ${state.slides.length + 1}`, templateId));
   state.currentSlideIndex = state.slides.length - 1;
   setSelectedElementIds([]);
   recordHistorySnapshot();

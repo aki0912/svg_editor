@@ -13,11 +13,20 @@
         <h1>SVG Slide Editor</h1>
         <section class="panel slide-controls">
           <h2>スライド操作</h2>
-          <div class="toolbar-group">
+          <div class="toolbar-group slide-action-buttons">
             <button id="new-slide">新規スライド</button>
             <button id="duplicate-slide">複製</button>
             <button id="delete-slide">削除</button>
           </div>
+          <label class="slide-template-control">
+            <span>新規スライドの雛形</span>
+            <select id="slide-template">
+              <option value="blank">空白スライド</option>
+              <option value="title">タイトル</option>
+              <option value="title-body">タイトル＋本文</option>
+              <option value="two-column">二列レイアウト</option>
+            </select>
+          </label>
           <ul id="slide-list"></ul>
         </section>
 

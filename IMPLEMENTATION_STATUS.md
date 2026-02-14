@@ -273,3 +273,19 @@
     - 回転付きの線/矢印に対してバウンディングを再計算するよう `getElementBounds` を拡張
 - 次アクション
   - `4-2. スライドテンプレート/マスター系`
+
+## 進捗更新（PPTX比較：4-2 スライドテンプレート/マスター系）
+- スライドテンプレート（新規）を追加
+  - `index.html`
+    - スライド操作パネルに `#slide-template` セレクトを追加
+  - `app.js`
+    - `SLIDE_TEMPLATE_TITLES` を追加
+    - `getSelectedSlideTemplateId` / `createSlideTemplateElements` / `createSlideFromTemplate` を追加
+    - `newSlide` をテンプレート選択値で生成するよう更新
+    - テンプレート生成時に初期テキスト要素（タイトル / タイトル＋本文 / 二列）を配置可能化
+  - `IMPLEMENTATION_STATUS.md`
+    - 本ステータス更新を追加
+- 受け入れ条件
+  - 新規スライド時に選択テンプレートが反映される
+  - 空白テンプレートは従来どおり空で作成される
+  - 既存機能（履歴/複製/選択/保存）への破壊的変更なし

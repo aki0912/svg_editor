@@ -126,6 +126,34 @@ h2 {
   flex-wrap: wrap;
 }
 
+.slide-controls .toolbar-group.slide-action-buttons {
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.slide-controls .toolbar-group.slide-action-buttons button {
+  flex: 1;
+  min-width: 0;
+}
+
+.slide-template-control {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.slide-template-control span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.slide-template-control select {
+  width: 100%;
+}
+
 .toolbar-group.small {
   margin-top: 0;
 }
@@ -227,7 +255,8 @@ input[type="color"]::-webkit-color-swatch {
   padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  max-height: 240px;
+  max-height: 280px;
+  margin-top: 4px;
   overflow: auto;
   background: var(--bg-tertiary);
   scrollbar-width: thin;
