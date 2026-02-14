@@ -1,6 +1,6 @@
 import { describe, it } from 'vitest';
 import assert from 'node:assert/strict';
-import snapModule from '../src/commands/snap.js';
+import snapModule from '../src/commands/alignSnap.js';
 
 const { createSnapEngine } = snapModule;
 
@@ -64,5 +64,26 @@ describe('snap engine', () => {
     assert.equal(result.hasSnapY, true);
     assert.equal(result.y, 340);
     assert.equal(result.guideY, 360);
+  });
+
+  it('does not snap when threshold is 0', () => {
+    const snap = createSnapEngine({ snapThreshold: 0 });
+    const result = snap.snapMove({
+      x: 98,
+      y: 346,
+      width: 50,
+      height: 40,
+      elements: [
+        { id: 'a', x: 100, y: 344, width: 40, height: 40 },
+      ],
+      slideWidth: 960,
+      slideHeight: 720,
+      activeElementId: 'target',
+    });
+
+    assert.equal(result.hasSnapX, false);
+    assert.equal(result.hasSnapY, false);
+    assert.equal(result.x, 98);
+    assert.equal(result.y, 346);
   });
 });

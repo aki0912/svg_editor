@@ -3,13 +3,16 @@ const HTML_NS = 'http://www.w3.org/1999/xhtml';
 const STORAGE_KEY = 'svg_ppt_like_state_v1';
 const SVG_IMPORT_PADDING_RATIO = 0;
 const TEXT_EDIT_DRAG_THRESHOLD = 4;
-const SNAP_THRESHOLD = 10;
+const SNAP_THRESHOLD_DEFAULT = 10;
+const SNAP_THRESHOLD_MIN = 0;
+const SNAP_THRESHOLD_MAX = 40;
 
 const state = {
   slides: [createEmptySlide('スライド 1')],
   currentSlideIndex: 0,
   selectedElementId: null,
   pointerState: null,
+  snapThreshold: SNAP_THRESHOLD_DEFAULT,
 };
 
 const historyFactory = typeof window !== 'undefined'
@@ -22,13 +25,17 @@ const history = historyFactory
   : createFallbackHistoryManager(state, { maxEntries: 200 });
 
 const snapEngineFactory = typeof window !== 'undefined'
-  && window.EditorSnap
-  && typeof window.EditorSnap.createSnapEngine === 'function'
-    ? window.EditorSnap.createSnapEngine
-    : null;
+  && window.EditorAlignSnap
+  && typeof window.EditorAlignSnap.createSnapEngine === 'function'
+    ? window.EditorAlignSnap.createSnapEngine
+    : typeof window !== 'undefined'
+      && window.EditorSnap
+      && typeof window.EditorSnap.createSnapEngine === 'function'
+        ? window.EditorSnap.createSnapEngine
+        : null;
 const snapEngine = snapEngineFactory
   ? snapEngineFactory({
-    snapThreshold: SNAP_THRESHOLD,
+    snapThreshold: SNAP_THRESHOLD_DEFAULT,
   })
   : null;
 
@@ -63,6 +70,8 @@ const dom = {
   propStrokeLabel: document.getElementById('prop-stroke-label'),
   propFontSize: document.getElementById('prop-font-size'),
   propText: document.getElementById('prop-text'),
+  snapThresholdInput: document.getElementById('snap-threshold'),
+  snapThresholdValue: document.getElementById('snap-threshold-value'),
   bringFront: document.getElementById('bring-front'),
   sendBack: document.getElementById('send-back'),
   instructions: document.getElementById('instructions'),
@@ -207,6 +216,30 @@ function clearSnapGuideState() {
   activeSnapGuide = null;
 }
 
+function normalizeSnapThreshold(rawValue) {
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed)) return SNAP_THRESHOLD_DEFAULT;
+  return Math.min(SNAP_THRESHOLD_MAX, Math.max(SNAP_THRESHOLD_MIN, parsed));
+}
+
+function getSnapThreshold() {
+  return normalizeSnapThreshold(state.snapThreshold);
+}
+
+function applySnapThreshold(rawValue) {
+  const next = normalizeSnapThreshold(rawValue);
+  state.snapThreshold = next;
+
+  if (dom.snapThresholdInput) {
+    dom.snapThresholdInput.value = String(next);
+  }
+  if (dom.snapThresholdValue) {
+    dom.snapThresholdValue.textContent = `${next}px`;
+  }
+
+  return next;
+}
+
 function applyMoveSnap(element, x, y) {
   if (!snapEngine) return { x, y };
 
@@ -221,7 +254,7 @@ function applyMoveSnap(element, x, y) {
     activeElementId: element.id,
     slideWidth: slide.width,
     slideHeight: slide.height,
-    snapThreshold: SNAP_THRESHOLD,
+    snapThreshold: getSnapThreshold(),
   });
 
   activeSnapGuide = {
@@ -275,7 +308,7 @@ function applyResizeSnap(next, handle, baseBounds) {
       activeElementId: state.pointerState.elementId,
       slideWidth: slide.width,
       slideHeight: slide.height,
-      snapThreshold: SNAP_THRESHOLD,
+      snapThreshold: getSnapThreshold(),
     });
 
     if (leftSnap.hasSnapX) {
@@ -298,7 +331,7 @@ function applyResizeSnap(next, handle, baseBounds) {
       activeElementId: state.pointerState.elementId,
       slideWidth: slide.width,
       slideHeight: slide.height,
-      snapThreshold: SNAP_THRESHOLD,
+      snapThreshold: getSnapThreshold(),
     });
 
     const alignedRight = Number.isFinite(rightSnap.guideX) ? rightSnap.guideX : rightEdge;
@@ -320,7 +353,7 @@ function applyResizeSnap(next, handle, baseBounds) {
       activeElementId: state.pointerState.elementId,
       slideWidth: slide.width,
       slideHeight: slide.height,
-      snapThreshold: SNAP_THRESHOLD,
+      snapThreshold: getSnapThreshold(),
     });
 
     if (topSnap.hasSnapY) {
@@ -343,7 +376,7 @@ function applyResizeSnap(next, handle, baseBounds) {
       activeElementId: state.pointerState.elementId,
       slideWidth: slide.width,
       slideHeight: slide.height,
-      snapThreshold: SNAP_THRESHOLD,
+      snapThreshold: getSnapThreshold(),
     });
 
     const alignedBottom = Number.isFinite(bottomSnap.guideY) ? bottomSnap.guideY : bottomEdge;
@@ -2448,6 +2481,10 @@ function setupEvents() {
   dom.propStroke.addEventListener('input', applyPropertyFromInputs);
   dom.propFontSize.addEventListener('input', applyPropertyFromInputs);
   dom.propText.addEventListener('input', applyPropertyFromInputs);
+  dom.snapThresholdInput?.addEventListener('input', (event) => {
+    applySnapThreshold(event.target.value);
+    saveLocal();
+  });
 
   dom.undoAction.addEventListener('click', () => {
     undoHistory();
@@ -2503,6 +2540,7 @@ function setupEvents() {
 
 function bootstrap() {
   loadLocal();
+  applySnapThreshold(state.snapThreshold);
   if (history && typeof history.replace === 'function') {
     history.replace(state);
   } else {

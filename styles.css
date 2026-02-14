@@ -308,6 +308,46 @@ input[type="color"]::-webkit-color-swatch {
   margin-top: 6px;
 }
 
+.snap-controls label {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.slider-row-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.slider-row input[type='range'] {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+}
+
+.snap-controls .slider-row-wrap > span {
+  margin-top: 0;
+  color: var(--text-secondary);
+}
+
+.slider-row span {
+  min-width: 3.5ch;
+  text-align: right;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 13px;
+}
+
 .actions {
   display: flex;
   flex-direction: column;
