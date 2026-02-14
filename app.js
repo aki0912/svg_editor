@@ -258,6 +258,58 @@ function normalizeTextAlign(value) {
   return 'start';
 }
 
+function normalizeTextDominantBaseline(value) {
+  const normalized = String(value || 'auto').toLowerCase().trim();
+  if (!normalized || normalized === 'auto' || normalized === 'baseline' || normalized === 'alphabetic') {
+    return 'hanging';
+  }
+  if (normalized === 'text-before-edge') return 'hanging';
+  return normalized;
+}
+
+function normalizeTextAlignmentBaseline(value, dominantBaseline = 'hanging') {
+  const normalized = String(value || 'auto').toLowerCase().trim();
+  if (!normalized || normalized === 'auto' || normalized === 'baseline' || normalized === 'alphabetic') {
+    return dominantBaseline === 'hanging' ? 'hanging' : 'auto';
+  }
+  if (normalized === 'text-before-edge') return 'hanging';
+  return normalized;
+}
+
+function estimateTextBaselineAscent(fontSize, options = {}) {
+  const safeFontSize = normalizeTextFontSize(fontSize);
+  const ctx = getTextMeasureContext();
+  const fontFamily = normalizeFontFamilyInputValue(options.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
+  const fontWeight = normalizeTextFontWeight(options.fontWeight || 'normal');
+  const fontStyle = normalizeTextFontStyle(options.fontStyle || 'normal');
+
+  if (ctx) {
+    ctx.font = `${fontStyle} ${fontWeight} ${safeFontSize}px ${fontFamily}`;
+    const sampleText = typeof options.sampleText === 'string' && options.sampleText.trim()
+      ? options.sampleText
+      : 'Hgあ';
+    const metrics = ctx.measureText(sampleText);
+    const ascent = Number(metrics.actualBoundingBoxAscent);
+    if (Number.isFinite(ascent) && ascent > 0) {
+      return ascent;
+    }
+  }
+
+  return safeFontSize * 0.82;
+}
+
+function convertSvgTextYToTop(svgY, fontSize, dominantBaseline = 'auto', options = {}) {
+  const baseline = String(dominantBaseline || 'auto').toLowerCase().trim();
+  const ascent = estimateTextBaselineAscent(fontSize, options);
+  const safeFontSize = normalizeTextFontSize(fontSize);
+  if (baseline === 'hanging' || baseline === 'text-before-edge') return svgY;
+  if (baseline === 'middle' || baseline === 'central') return svgY - ascent * 0.5;
+  if (baseline === 'text-after-edge' || baseline === 'ideographic' || baseline === 'bottom') {
+    return svgY - Math.max(ascent, safeFontSize * 0.98);
+  }
+  return svgY - ascent;
+}
+
 function normalizeFontFamilyPrimaryToken(fontFamily) {
   const normalized = normalizeFontFamilyInputValue(fontFamily || DEFAULT_TEXT_FONT_FAMILY);
   return normalized.split(',')[0]?.trim() || DEFAULT_TEXT_FONT_FAMILY;
@@ -284,6 +336,8 @@ function normalizeTextElementProperties(item) {
   item.fontWeight = normalizeTextFontWeight(item.fontWeight);
   item.fontStyle = normalizeTextFontStyle(item.fontStyle);
   item.textAnchor = normalizeTextAlign(item.textAnchor || 'start');
+  item.dominantBaseline = normalizeTextDominantBaseline(item.dominantBaseline || 'hanging');
+  item.alignmentBaseline = normalizeTextAlignmentBaseline(item.alignmentBaseline || 'auto', item.dominantBaseline);
   item.lineSpacing = normalizeTextLineSpacing(item.lineSpacing || TEXT_LINE_SPACING_DEFAULT);
   item.letterSpacing = normalizeTextLetterSpacing(item.letterSpacing || TEXT_LETTER_SPACING_DEFAULT);
   item.textIndent = normalizeTextIndent(item.textIndent || TEXT_INDENT_DEFAULT);
@@ -1552,6 +1606,13 @@ function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
     const strokeWidth = parseNumber(getNodeStyleValue(span, 'stroke-width', 0, svgRoot), 0);
     const fontWeight = getNodeStyleValue(span, 'font-weight', baseFontWeight, svgRoot);
     const fontStyle = getNodeStyleValue(span, 'font-style', baseFontStyle, svgRoot);
+    const sourceDominantBaseline = getNodeStyleValue(span, 'dominant-baseline', baseDominantBaseline, svgRoot);
+    const sourceAlignmentBaseline = getNodeStyleValue(span, 'alignment-baseline', baseAlignmentBaseline, svgRoot);
+    const normalizedDominantBaseline = normalizeTextDominantBaseline(sourceDominantBaseline);
+    const normalizedAlignmentBaseline = normalizeTextAlignmentBaseline(
+      sourceAlignmentBaseline,
+      normalizedDominantBaseline,
+    );
 
     const hasLineBreak = spanYAttr !== null || (lineIndex > 0 && spanDY !== 0);
     const hasAbsoluteX = spanXAttr !== null;
@@ -1572,11 +1633,18 @@ function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
 
     const estimatedWidth = measureTSpanWidth(text, span, spanFontSize);
     const estimatedHeight = Math.max(16, spanFontSize + 14);
+    const svgTextY = cursorY + transformOffset.y;
+    const topY = convertSvgTextYToTop(svgTextY, spanFontSize, sourceDominantBaseline, {
+      fontFamily,
+      fontWeight,
+      fontStyle,
+      sampleText: text,
+    });
 
     elements.push({
       type: 'text',
       x,
-      y: cursorY + transformOffset.y - spanFontSize,
+      y: topY,
       width: estimatedWidth,
       height: estimatedHeight,
       text,
@@ -1586,8 +1654,8 @@ function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
       fontStyle,
       fill,
       textAnchor: getNodeStyleValue(span, 'text-anchor', baseTextAnchor, svgRoot),
-          dominantBaseline: getNodeStyleValue(span, 'dominant-baseline', baseDominantBaseline, svgRoot),
-      alignmentBaseline: getNodeStyleValue(span, 'alignment-baseline', baseAlignmentBaseline, svgRoot),
+      dominantBaseline: normalizedDominantBaseline,
+      alignmentBaseline: normalizedAlignmentBaseline,
       stroke,
       strokeWidth,
     });
@@ -1796,18 +1864,29 @@ function parseSVGElements(svgRoot) {
       });
       const x = parseNumber(getNodeStyleValue(node, 'x', 0, svgRoot), 0) + transformOffset.x;
       const y = parseNumber(getNodeStyleValue(node, 'y', 0, svgRoot), 0) + transformOffset.y;
+      const sourceDominantBaseline = getNodeStyleValue(node, 'dominant-baseline', 'auto', svgRoot);
+      const normalizedDominantBaseline = normalizeTextDominantBaseline(sourceDominantBaseline);
+      const normalizedAlignmentBaseline = normalizeTextAlignmentBaseline(
+        getNodeStyleValue(node, 'alignment-baseline', 'auto', svgRoot),
+        normalizedDominantBaseline,
+      );
       parsed.push({
         type: 'text',
         x,
-        y: y - fontSize,
+        y: convertSvgTextYToTop(y, fontSize, sourceDominantBaseline, {
+          fontFamily,
+          fontWeight,
+          fontStyle,
+          sampleText: text,
+        }),
         width: Math.max(40, estimatedMetrics.width),
         height: Math.max(12, estimatedMetrics.height),
         text,
         fontSize,
         fontFamily,
         textAnchor: getNodeStyleValue(node, 'text-anchor', 'start', svgRoot),
-        dominantBaseline: getNodeStyleValue(node, 'dominant-baseline', 'auto', svgRoot),
-        alignmentBaseline: getNodeStyleValue(node, 'alignment-baseline', 'auto', svgRoot),
+        dominantBaseline: normalizedDominantBaseline,
+        alignmentBaseline: normalizedAlignmentBaseline,
         fontWeight,
         fontStyle,
         fill: getNodeStyleValue(node, 'fill', '#111827', svgRoot),
