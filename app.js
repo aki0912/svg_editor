@@ -2983,25 +2983,40 @@ function openTextEditorForElement(elementId, point = null) {
   const group = dom.canvas.querySelector(`[data-element-id="${elementId}"]`);
   if (!group) return;
   const textElement = group.querySelector('text');
+  const renderedTextBounds = textElement ? getNodeBBox(textElement) : null;
   if (textElement) textElement.setAttribute('visibility', 'hidden');
 
+  const elementX = Number(element.x) || 0;
+  const elementY = Number(element.y) || 0;
   const width = Math.max(1, Number(element.width) || 1);
   const initialHeight = Math.max(1, Number(element.height) || 1);
+  const elementBottomY = elementY + initialHeight;
+  let editorY = elementY;
+  if (renderedTextBounds && Number.isFinite(renderedTextBounds.y)) {
+    editorY = clamp(renderedTextBounds.y, elementY, Math.max(elementY, elementBottomY - 1));
+  }
+  const editorHeight = Math.max(1, elementBottomY - editorY);
   const textLines = (element.text || '').split('\n');
 
   const foreignObject = document.createElementNS(SVG_NS, 'foreignObject');
-  foreignObject.setAttribute('x', element.x);
-  foreignObject.setAttribute('y', element.y);
+  foreignObject.setAttribute('x', elementX);
+  foreignObject.setAttribute('y', editorY);
   foreignObject.setAttribute('width', width);
-  foreignObject.setAttribute('height', initialHeight);
+  foreignObject.setAttribute('height', editorHeight);
   foreignObject.setAttribute('data-inline-text-editor', '1');
 
   const host = document.createElementNS(HTML_NS, 'div');
   host.style.width = '100%';
   host.style.height = '100%';
+  host.style.boxSizing = 'border-box';
+  host.style.outline = '2px solid var(--accent-primary)';
+  host.style.outlineOffset = '-2px';
+  host.style.borderRadius = '6px';
   const editorLineSpacing = normalizeTextLineSpacing(element.lineSpacing);
   const editorLetterSpacing = normalizeTextLetterSpacing(element.letterSpacing);
   const editorTextIndent = normalizeTextIndent(element.textIndent);
+  const editorFontSize = normalizeTextFontSize(element.fontSize || TEXT_STYLE_FONT_SIZE_DEFAULT);
+  const editorLineHeight = getTextLineHeight(editorFontSize, editorLineSpacing);
 
   const textarea = document.createElementNS(HTML_NS, 'textarea');
   textarea.value = element.text || '';
@@ -3013,18 +3028,18 @@ function openTextEditorForElement(elementId, point = null) {
     'width:100%;',
     'height:100%;',
     'margin:0;',
-    'padding:6px 8px;',
-    'border:2px solid var(--accent-primary);',
+    'padding:0;',
+    'border:none;',
     'border-radius:6px;',
     'box-sizing:border-box;',
     'background:rgba(255,255,255,0.98);',
     `color:${element.fill || '#111827'};`,
-    `font-size:${element.fontSize || TEXT_STYLE_FONT_SIZE_DEFAULT}px;`,
+    `font-size:${editorFontSize}px;`,
     `font-family:${fontFamily};`,
     `font-weight:${normalizeTextFontWeight(element.fontWeight)};`,
     `font-style:${normalizeTextFontStyle(element.fontStyle)};`,
     `text-align:${getTextAlignCssValue(normalizeTextAlign(element.textAnchor || 'start'))};`,
-    `line-height:${editorLineSpacing};`,
+    `line-height:${editorLineHeight}px;`,
     `letter-spacing:${editorLetterSpacing}px;`,
     `text-indent:${editorTextIndent}px;`,
     'white-space:pre-wrap;',
