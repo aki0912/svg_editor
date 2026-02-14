@@ -500,36 +500,39 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 .snap-guide-line {
-  stroke: #5eead4;
-  stroke-width: 1.5;
-  stroke-dasharray: 10 6;
+  stroke: rgba(56, 189, 248, 0.95);
+  stroke-width: 2;
+  stroke-dasharray: 12 8;
+  stroke-linecap: round;
+  opacity: 0.92;
   pointer-events: none;
   vector-effect: non-scaling-stroke;
-  filter: drop-shadow(0 0 6px rgba(94, 234, 212, 0.45));
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.5));
 }
 
 .snap-guide-line--dual {
-  stroke: #7dd3fc;
-  stroke-width: 2;
-  stroke-dasharray: 6 5;
+  stroke: #67e8f9;
+  stroke-width: 2.25;
+  stroke-dasharray: 8 6;
+  opacity: 1;
 }
 
 .snap-guide-line--fade {
-  animation: snapGuideFadeOut 170ms ease-out forwards;
+  animation: snapGuideFadeOut 220ms ease-out forwards;
 }
 
 .snap-guide-marker {
-  fill: #38bdf8;
+  fill: #eff6ff;
   stroke: #ffffff;
-  stroke-width: 2;
-  opacity: 0.95;
+  stroke-width: 1.8;
+  opacity: 1;
   pointer-events: none;
   vector-effect: non-scaling-stroke;
-  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.6));
+  filter: drop-shadow(0 0 8px rgba(103, 232, 249, 0.8));
 }
 
 .snap-guide-marker--fade {
-  animation: snapGuideFadeOut 170ms ease-out forwards;
+  animation: snapGuideFadeOut 220ms ease-out forwards;
 }
 
 @keyframes snapGuideFadeOut {

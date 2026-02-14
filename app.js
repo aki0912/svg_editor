@@ -4,7 +4,7 @@ const STORAGE_KEY = 'svg_ppt_like_state_v1';
 const SVG_IMPORT_PADDING_RATIO = 0;
 const TEXT_EDIT_DRAG_THRESHOLD = 4;
 const SNAP_THRESHOLD_DEFAULT = 10;
-const SNAP_GUIDE_FADE_DURATION = 170;
+const SNAP_GUIDE_FADE_DURATION = 220;
 const SNAP_RESIZE_MIN_SIZE = 20;
 const textCommands = typeof window !== 'undefined'
   && window.EditorElementCommands
