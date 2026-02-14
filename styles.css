@@ -136,17 +136,6 @@ h2 {
   min-width: 0;
 }
 
-.slide-navigation {
-  display: grid;
-  grid-template-columns: 56px minmax(0, 1fr) 56px;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.slide-navigation select {
-  width: 100%;
-}
-
 .slide-template-control {
   display: block;
   margin-bottom: 12px;
@@ -260,70 +249,80 @@ input[type="color"]::-webkit-color-swatch {
   border-radius: 6px;
 }
 
-#slide-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+#slide-overview {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  padding: 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  max-height: 280px;
-  margin-top: 4px;
+  max-height: 360px;
   overflow: auto;
   background: var(--bg-tertiary);
+  margin-top: 12px;
   scrollbar-width: thin;
   scrollbar-color: var(--border-light) transparent;
 }
 
-#slide-list::-webkit-scrollbar {
+#slide-overview::-webkit-scrollbar {
   width: 6px;
 }
 
-#slide-list::-webkit-scrollbar-track {
+#slide-overview::-webkit-scrollbar-track {
   background: transparent;
 }
 
-#slide-list::-webkit-scrollbar-thumb {
+#slide-overview::-webkit-scrollbar-thumb {
   background: var(--border-light);
   border-radius: 3px;
 }
 
-#slide-list li {
-  border-bottom: 1px solid var(--border);
-  transition: background-color var(--transition-fast);
-}
-
-#slide-list li:last-child {
-  border-bottom: none;
-}
-
-#slide-list button {
+.slide-overview-item {
   width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #0f1629;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+  color: var(--text-secondary);
   text-align: left;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  padding: 12px 14px;
-  transition: all var(--transition-fast);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
 }
 
-#slide-list button:hover {
-  background: var(--surface);
-  transform: none;
-  box-shadow: none;
+.slide-overview-item:hover {
+  border-color: var(--border-light);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
 }
 
-#slide-list button::before {
-  display: none;
+.slide-overview-item span {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-#slide-list li.active button {
-  background: var(--accent-primary);
-  color: white;
-  font-weight: 600;
+.slide-overview-item.is-active {
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 1px var(--accent-glow);
 }
 
-#slide-list li.active {
-  background: var(--accent-primary);
+.slide-overview-item.is-active span {
+  color: #fff;
+}
+
+.slide-overview-canvas {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  background: #fff;
+  display: block;
 }
 
 .properties {

@@ -129,7 +129,7 @@ let clipboardElements = [];
 let clipboardPasteOffset = 20;
 
 const dom = {
-  slideList: document.getElementById('slide-list'),
+  slideOverview: document.getElementById('slide-overview'),
   slideTitle: document.getElementById('slide-title'),
   canvas: document.getElementById('canvas'),
   addText: document.getElementById('add-text'),
@@ -141,9 +141,6 @@ const dom = {
   addDiamond: document.getElementById('add-diamond'),
   addImage: document.getElementById('add-image'),
   newSlide: document.getElementById('new-slide'),
-  prevSlide: document.getElementById('prev-slide'),
-  slideJump: document.getElementById('slide-jump'),
-  nextSlide: document.getElementById('next-slide'),
   canvasPrevSlide: document.getElementById('canvas-prev-slide'),
   canvasSlideJump: document.getElementById('canvas-slide-jump'),
   canvasNextSlide: document.getElementById('canvas-next-slide'),
@@ -2080,27 +2077,254 @@ function render() {
   saveLocal();
 }
 
+function createThumbnailTextNode(el) {
+  const g = document.createElementNS(SVG_NS, 'g');
+  normalizeTextElementProperties(el);
+  const textAnchor = normalizeTextAlign(el.textAnchor || 'start');
+  const fontSize = normalizeTextFontSize(el.fontSize);
+  const lineHeight = getTextLineHeight(fontSize, normalizeTextLineSpacing(el.lineSpacing || TEXT_LINE_SPACING_DEFAULT));
+  const letterSpacing = normalizeTextLetterSpacing(el.letterSpacing || TEXT_LETTER_SPACING_DEFAULT);
+  const textIndent = normalizeTextIndent(el.textIndent || TEXT_INDENT_DEFAULT);
+  const bulletType = normalizeTextBulletType(el.bulletType || TEXT_BULLET_DEFAULT);
+  const fontWeight = normalizeTextFontWeight(el.fontWeight);
+  const fontStyle = normalizeTextFontStyle(el.fontStyle);
+  const baseX = Number(el.x) || 0;
+  const width = Number.isFinite(el.width) ? el.width : 0;
+  const anchorX = textAnchor === 'middle'
+    ? baseX + width / 2
+    : textAnchor === 'end'
+      ? baseX + width
+      : baseX;
+  const lineX = anchorX + textIndent;
+  const text = document.createElementNS(SVG_NS, 'text');
+  const textLines = (el.text || '').split('\n');
+  const safeFontFamily = normalizeFontFamilyValue(el.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
+
+  textLines.forEach((line, index) => {
+    const tspan = document.createElementNS(SVG_NS, 'tspan');
+    const displayLine = buildTextDisplayLine(line, index, { bulletType });
+    if (index > 0) {
+      tspan.setAttribute('x', String(lineX));
+      tspan.setAttribute('dy', String(lineHeight));
+    }
+    tspan.textContent = displayLine.text;
+    text.appendChild(tspan);
+  });
+
+  text.setAttribute('x', String(lineX));
+  text.setAttribute('y', String((Number(el.y) || 0) + fontSize));
+  text.setAttribute('fill', el.fill || '#111827');
+  text.setAttribute('font-size', String(fontSize));
+  text.setAttribute('font-family', safeFontFamily);
+  text.setAttribute('font-weight', fontWeight);
+  text.setAttribute('font-style', fontStyle);
+  text.setAttribute('text-anchor', textAnchor);
+  text.setAttribute('letter-spacing', String(letterSpacing));
+  text.setAttribute('dominant-baseline', el.dominantBaseline || 'hanging');
+  text.setAttribute('alignment-baseline', el.alignmentBaseline || 'auto');
+  text.setAttribute('stroke', el.stroke || 'none');
+  text.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 0);
+  g.appendChild(text);
+  return g;
+}
+
+function createThumbnailShapeNode(el) {
+  if (el.type === 'text') return createThumbnailTextNode(el);
+  const g = document.createElementNS(SVG_NS, 'g');
+  if (el.type === 'rect') {
+    const rect = document.createElementNS(SVG_NS, 'rect');
+    rect.setAttribute('x', Number.isFinite(el.x) ? el.x : 0);
+    rect.setAttribute('y', Number.isFinite(el.y) ? el.y : 0);
+    rect.setAttribute('width', Number.isFinite(el.width) ? el.width : 0);
+    rect.setAttribute('height', Number.isFinite(el.height) ? el.height : 0);
+    if (Number.isFinite(el.rx) && el.rx > 0) rect.setAttribute('rx', el.rx);
+    if (Number.isFinite(el.ry) && el.ry > 0) rect.setAttribute('ry', el.ry);
+    rect.setAttribute('fill', el.fill || '#4ea5ff');
+    rect.setAttribute('stroke', el.stroke || '#003f7a');
+    rect.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
+    g.appendChild(rect);
+    return g;
+  }
+
+  if (el.type === 'roundedRect') {
+    const rect = document.createElementNS(SVG_NS, 'rect');
+    rect.setAttribute('x', Number.isFinite(el.x) ? el.x : 0);
+    rect.setAttribute('y', Number.isFinite(el.y) ? el.y : 0);
+    rect.setAttribute('width', Number.isFinite(el.width) ? el.width : 0);
+    rect.setAttribute('height', Number.isFinite(el.height) ? el.height : 0);
+    rect.setAttribute('rx', Number.isFinite(el.rx) ? el.rx : 16);
+    rect.setAttribute('ry', Number.isFinite(el.ry) ? el.ry : 16);
+    rect.setAttribute('fill', el.fill || '#4ea5ff');
+    rect.setAttribute('stroke', el.stroke || '#003f7a');
+    rect.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
+    g.appendChild(rect);
+    return g;
+  }
+
+  if (el.type === 'circle') {
+    const x = Number.isFinite(el.x) ? el.x : 60;
+    const y = Number.isFinite(el.y) ? el.y : 60;
+    const width = Number.isFinite(el.width) ? el.width : 0;
+    const height = Number.isFinite(el.height) ? el.height : 0;
+    const circle = document.createElementNS(SVG_NS, 'circle');
+    circle.setAttribute('cx', x + (width / 2));
+    circle.setAttribute('cy', y + (height / 2));
+    circle.setAttribute('r', Math.min(width, height) / 2);
+    circle.setAttribute('fill', el.fill || '#64d2ff');
+    circle.setAttribute('stroke', el.stroke || '#0f3f66');
+    circle.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
+    g.appendChild(circle);
+    return g;
+  }
+
+  if (el.type === 'ellipse') {
+    const ellipse = document.createElementNS(SVG_NS, 'ellipse');
+    ellipse.setAttribute('cx', Number.isFinite(el.x) ? el.x + (Number.isFinite(el.width) ? el.width / 2 : 0) : 60);
+    ellipse.setAttribute('cy', Number.isFinite(el.y) ? el.y + (Number.isFinite(el.height) ? el.height / 2 : 0) : 60);
+    ellipse.setAttribute('rx', Number.isFinite(el.width) ? el.width / 2 : 0);
+    ellipse.setAttribute('ry', Number.isFinite(el.height) ? el.height / 2 : 0);
+    ellipse.setAttribute('fill', el.fill || '#64d2ff');
+    ellipse.setAttribute('stroke', el.stroke || '#0f3f66');
+    ellipse.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
+    g.appendChild(ellipse);
+    return g;
+  }
+
+  if (el.type === 'image') {
+    const image = document.createElementNS(SVG_NS, 'image');
+    image.setAttributeNS('http://www.w3.org/1999/xlink', 'href', el.url || '');
+    image.setAttribute('href', el.url || '');
+    image.setAttribute('x', Number.isFinite(el.x) ? el.x : 0);
+    image.setAttribute('y', Number.isFinite(el.y) ? el.y : 0);
+    image.setAttribute('width', Number.isFinite(el.width) ? el.width : 0);
+    image.setAttribute('height', Number.isFinite(el.height) ? el.height : 0);
+    image.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    g.appendChild(image);
+    return g;
+  }
+
+  if (el.type === 'svg-fragment') {
+    const sourceWidth = Math.max(1, Number.parseFloat(el.sourceWidth) || 1);
+    const sourceHeight = Math.max(1, Number.parseFloat(el.sourceHeight) || 1);
+    const inlineSvg = document.createElementNS(SVG_NS, 'svg');
+    inlineSvg.setAttribute('x', Number.isFinite(el.x) ? el.x : 0);
+    inlineSvg.setAttribute('y', Number.isFinite(el.y) ? el.y : 0);
+    inlineSvg.setAttribute('width', Number.isFinite(el.width) ? el.width : 0);
+    inlineSvg.setAttribute('height', Number.isFinite(el.height) ? el.height : 0);
+    inlineSvg.setAttribute('viewBox', el.sourceViewBox || `0 0 ${sourceWidth} ${sourceHeight}`);
+    inlineSvg.setAttribute('preserveAspectRatio', el.sourcePreserveAspectRatio || 'xMidYMid meet');
+    inlineSvg.setAttribute('overflow', 'visible');
+
+    const parsed = new DOMParser().parseFromString(el.sourceText || '<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>', 'image/svg+xml');
+    const sourceNode = parsed.documentElement;
+    if (sourceNode && sourceNode.tagName.toLowerCase() === 'svg') {
+      Array.from(sourceNode.childNodes).forEach((node) => {
+        if (node.nodeType === 1 || (node.nodeType === 3 && node.textContent.trim())) {
+          inlineSvg.appendChild(document.importNode(node, true));
+        }
+      });
+    }
+    g.appendChild(inlineSvg);
+    return g;
+  }
+
+  if (el.type === 'line' || el.type === 'arrow') {
+    const lineEndpoints = getLineEndpoints(el);
+    if (!lineEndpoints) return null;
+    const { x1, y1, x2, y2 } = lineEndpoints;
+    const stroke = el.stroke || '#0f3f66';
+    const strokeWidth = Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2;
+
+    const line = document.createElementNS(SVG_NS, 'line');
+    line.setAttribute('x1', x1);
+    line.setAttribute('y1', y1);
+    line.setAttribute('x2', x2);
+    line.setAttribute('y2', y2);
+    line.setAttribute('fill', 'none');
+    line.setAttribute('stroke', stroke);
+    line.setAttribute('stroke-width', strokeWidth);
+    line.setAttribute('stroke-linecap', 'round');
+    g.appendChild(line);
+
+    if (el.type === 'arrow') {
+      const arrowPoints = buildArrowHeadPoints(
+        x1,
+        y1,
+        x2,
+        y2,
+        Number.isFinite(el.arrowHeadLength) ? el.arrowHeadLength : 18,
+      );
+      if (arrowPoints) {
+        const arrowHead = document.createElementNS(SVG_NS, 'polygon');
+        arrowHead.setAttribute('points', arrowPoints);
+        arrowHead.setAttribute('fill', el.fill || stroke);
+        arrowHead.setAttribute('stroke', stroke);
+        arrowHead.setAttribute('stroke-width', strokeWidth);
+        arrowHead.setAttribute('stroke-linejoin', 'miter');
+        g.appendChild(arrowHead);
+      }
+    }
+    return g;
+  }
+
+  if (el.type === 'diamond') {
+    const x = Number.isFinite(el.x) ? el.x : 60;
+    const y = Number.isFinite(el.y) ? el.y : 60;
+    const width = Number.isFinite(el.width) ? el.width : 160;
+    const height = Number.isFinite(el.height) ? el.height : 160;
+    const cx = x + width / 2;
+    const cy = y + height / 2;
+    const points = `${cx},${y} ${x + width},${cy} ${cx},${y + height} ${x},${cy}`;
+    const diamond = document.createElementNS(SVG_NS, 'polygon');
+    diamond.setAttribute('points', points);
+    diamond.setAttribute('fill', el.fill || '#4ea5ff');
+    diamond.setAttribute('stroke', el.stroke || '#003f7a');
+    diamond.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
+    g.appendChild(diamond);
+    return g;
+  }
+
+  return null;
+}
+
+function createSlideThumbnail(slide) {
+  const thumb = document.createElementNS(SVG_NS, 'svg');
+  const slideWidth = Number.isFinite(slide.width) ? slide.width : 960;
+  const slideHeight = Number.isFinite(slide.height) ? slide.height : 720;
+  const background = slide.background || '#ffffff';
+
+  thumb.setAttribute('viewBox', `0 0 ${slideWidth} ${slideHeight}`);
+  thumb.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  thumb.setAttribute('aria-hidden', 'true');
+  thumb.classList.add('slide-overview-canvas');
+
+  const bg = document.createElementNS(SVG_NS, 'rect');
+  bg.setAttribute('width', String(slideWidth));
+  bg.setAttribute('height', String(slideHeight));
+  bg.setAttribute('fill', background);
+  thumb.appendChild(bg);
+
+  (slide.elements || []).forEach((element) => {
+    const node = createThumbnailShapeNode(element);
+    if (node) thumb.appendChild(node);
+  });
+
+  return thumb;
+}
+
 function renderSlideList() {
-  dom.slideList.innerHTML = '';
-  const jumpControls = [dom.slideJump, dom.canvasSlideJump].filter(Boolean);
+  if (dom.slideOverview) {
+    dom.slideOverview.innerHTML = '';
+  }
+  const jumpControls = [dom.canvasSlideJump].filter(Boolean);
   jumpControls.forEach((jump) => {
     jump.innerHTML = '';
   });
-  const prevButtons = [dom.prevSlide, dom.canvasPrevSlide].filter(Boolean);
-  const nextButtons = [dom.nextSlide, dom.canvasNextSlide].filter(Boolean);
+  const prevButtons = [dom.canvasPrevSlide].filter(Boolean);
+  const nextButtons = [dom.canvasNextSlide].filter(Boolean);
 
   state.slides.forEach((slide, index) => {
-    const li = document.createElement('li');
-    const btn = document.createElement('button');
     const title = `${index + 1}. ${slide.title}`;
-    li.className = index === state.currentSlideIndex ? 'active' : '';
-    btn.textContent = title;
-    btn.addEventListener('click', () => {
-      goToSlide(index);
-    });
-    li.appendChild(btn);
-    dom.slideList.appendChild(li);
-
     jumpControls.forEach((jump) => {
       const option = document.createElement('option');
       option.value = String(index);
@@ -2108,6 +2332,24 @@ function renderSlideList() {
       option.selected = index === state.currentSlideIndex;
       jump.appendChild(option);
     });
+
+    if (dom.slideOverview) {
+      const overview = document.createElement('button');
+      overview.type = 'button';
+      const isActive = index === state.currentSlideIndex;
+      overview.className = isActive ? 'slide-overview-item is-active' : 'slide-overview-item';
+      if (isActive) {
+        overview.setAttribute('aria-current', 'true');
+      }
+      overview.addEventListener('click', () => {
+        goToSlide(index);
+      });
+      overview.appendChild(createSlideThumbnail(slide));
+      const caption = document.createElement('span');
+      caption.textContent = title;
+      overview.appendChild(caption);
+      dom.slideOverview.appendChild(overview);
+    }
   });
 
   prevButtons.forEach((button) => {
@@ -2127,7 +2369,6 @@ function goToSlide(nextIndex, options = {}) {
   const parsed = Number(nextIndex);
   const target = Math.min(Math.max(Number.isFinite(parsed) ? Math.round(parsed) : state.currentSlideIndex, 0), total - 1);
   if (target === state.currentSlideIndex) {
-    if (dom.slideJump) dom.slideJump.value = String(state.currentSlideIndex);
     if (dom.canvasSlideJump) dom.canvasSlideJump.value = String(state.currentSlideIndex);
     return;
   }
@@ -3851,22 +4092,11 @@ function setupEvents() {
   dom.newSlide.addEventListener('click', newSlide);
   dom.duplicateSlide.addEventListener('click', duplicateSlide);
   dom.deleteSlide.addEventListener('click', removeCurrentSlide);
-  if (dom.prevSlide) {
-    dom.prevSlide.addEventListener('click', () => goToSlide(state.currentSlideIndex - 1));
-  }
   if (dom.canvasPrevSlide) {
     dom.canvasPrevSlide.addEventListener('click', () => goToSlide(state.currentSlideIndex - 1));
   }
-  if (dom.nextSlide) {
-    dom.nextSlide.addEventListener('click', () => goToSlide(state.currentSlideIndex + 1));
-  }
   if (dom.canvasNextSlide) {
     dom.canvasNextSlide.addEventListener('click', () => goToSlide(state.currentSlideIndex + 1));
-  }
-  if (dom.slideJump) {
-    dom.slideJump.addEventListener('change', (event) => {
-      goToSlide(Number(event.target.value));
-    });
   }
   if (dom.canvasSlideJump) {
     dom.canvasSlideJump.addEventListener('change', (event) => {
