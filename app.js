@@ -2121,16 +2121,16 @@ function isCanvasObjectInteractiveTarget(target) {
   );
 }
 
-function isPropertyPanelTarget(target) {
+function isSelectionProtectedTarget(target) {
   if (!(target instanceof Element)) return false;
-  return Boolean(target.closest('.properties'));
+  return Boolean(target.closest('.properties') || target.closest('.object-actions'));
 }
 
 function onCanvasPointerDownForDeselect(event) {
   if (!event) return;
 
   const target = event.target;
-  if (isCanvasObjectInteractiveTarget(target) || isPropertyPanelTarget(target)) return;
+  if (isCanvasObjectInteractiveTarget(target) || isSelectionProtectedTarget(target)) return;
 
   if (!state.selectedElementId && !activeTextEditor) return;
 
