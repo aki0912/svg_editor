@@ -4,8 +4,6 @@ const STORAGE_KEY = 'svg_ppt_like_state_v1';
 const SVG_IMPORT_PADDING_RATIO = 0;
 const TEXT_EDIT_DRAG_THRESHOLD = 4;
 const SNAP_THRESHOLD_DEFAULT = 10;
-const SNAP_THRESHOLD_MIN = 0;
-const SNAP_THRESHOLD_MAX = 40;
 const textCommands = typeof window !== 'undefined'
   && window.EditorElementCommands
   && typeof window.EditorElementCommands === 'object'
@@ -59,7 +57,6 @@ const state = {
   currentSlideIndex: 0,
   selectedElementId: null,
   pointerState: null,
-  snapThreshold: SNAP_THRESHOLD_DEFAULT,
 };
 
 const historyFactory = typeof window !== 'undefined'
@@ -127,8 +124,6 @@ const dom = {
   propFontItalicRow: document.getElementById('prop-font-italic-row'),
   propText: document.getElementById('prop-text'),
   propTextRow: document.getElementById('prop-text-row'),
-  snapThresholdInput: document.getElementById('snap-threshold'),
-  snapThresholdValue: document.getElementById('snap-threshold-value'),
   bringFront: document.getElementById('bring-front'),
   sendBack: document.getElementById('send-back'),
   instructions: document.getElementById('instructions'),
@@ -273,28 +268,8 @@ function clearSnapGuideState() {
   activeSnapGuide = null;
 }
 
-function normalizeSnapThreshold(rawValue) {
-  const parsed = Number.parseInt(rawValue, 10);
-  if (!Number.isFinite(parsed)) return SNAP_THRESHOLD_DEFAULT;
-  return Math.min(SNAP_THRESHOLD_MAX, Math.max(SNAP_THRESHOLD_MIN, parsed));
-}
-
 function getSnapThreshold() {
-  return normalizeSnapThreshold(state.snapThreshold);
-}
-
-function applySnapThreshold(rawValue) {
-  const next = normalizeSnapThreshold(rawValue);
-  state.snapThreshold = next;
-
-  if (dom.snapThresholdInput) {
-    dom.snapThresholdInput.value = String(next);
-  }
-  if (dom.snapThresholdValue) {
-    dom.snapThresholdValue.textContent = `${next}px`;
-  }
-
-  return next;
+  return SNAP_THRESHOLD_DEFAULT;
 }
 
 function applyMoveSnap(element, x, y) {
@@ -2520,9 +2495,6 @@ function loadLocal() {
 
     state.slides = loaded.slides;
     state.currentSlideIndex = Math.min(Math.max(0, loaded.currentSlideIndex || 0), state.slides.length - 1);
-    if (Object.hasOwn(loaded, 'snapThreshold')) {
-      state.snapThreshold = normalizeSnapThreshold(loaded.snapThreshold);
-    }
     state.selectedElementId = null;
   } catch (error) {
     console.error('保存データの読み込み失敗', error);
@@ -2545,13 +2517,7 @@ function importJSONFromInput(file) {
       }
       state.slides = loaded.slides;
       state.currentSlideIndex = 0;
-      if (Object.hasOwn(loaded, 'snapThreshold')) {
-        state.snapThreshold = normalizeSnapThreshold(loaded.snapThreshold);
-      } else {
-        state.snapThreshold = SNAP_THRESHOLD_DEFAULT;
-      }
       state.selectedElementId = null;
-      applySnapThreshold(state.snapThreshold);
       recordHistorySnapshot();
       render();
     } catch {
@@ -2729,10 +2695,6 @@ function setupEvents() {
   dom.propFontBold?.addEventListener('change', applyPropertyFromInputs);
   dom.propFontItalic?.addEventListener('change', applyPropertyFromInputs);
   dom.propText.addEventListener('input', applyPropertyFromInputs);
-  dom.snapThresholdInput?.addEventListener('input', (event) => {
-    applySnapThreshold(event.target.value);
-    saveLocal();
-  });
 
   dom.undoAction.addEventListener('click', () => {
     undoHistory();
@@ -2791,7 +2753,6 @@ function setupEvents() {
 
 function bootstrap() {
   loadLocal();
-  applySnapThreshold(state.snapThreshold);
   if (history && typeof history.replace === 'function') {
     history.replace(state);
   } else {
