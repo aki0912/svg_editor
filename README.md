@@ -1,28 +1,75 @@
 # SVG PowerPoint-like Slide Editor
 
-このリポジトリは、SVGを使ってPowerPoint風のスライド編集を行うための最小実装です。
+SVGベースでスライド編集を行う、ブラウザ単体動作のエディタです。  
+`index.html` をダブルクリックして起動できる構成を維持しています。
 
-## 1. ファイル構成
-- `index.html` : UI本体
-- `styles.css` : レイアウトと見た目
-- `app.js` : スライド管理、描画、編集ロジック
-- `docs/requirements.md` : 要件定義
-- `docs/development_plan.md` : 開発計画
+## 主な機能
+- スライド操作: 新規、複製、削除、前後移動、直接選択
+- 図形操作: 追加、移動、リサイズ、回転、複製、削除
+- テキスト操作: 直接編集、フォント・揃え・行間・字間・インデント・箇条書き
+- 入出力: JSONインポート/エクスポート、SVGインポート/エクスポート
+- 履歴: Undo/Redo（ボタンとショートカット）
+- 保存: `localStorage` への自動保存・復元
 
-## 2. 起動方法
-ブラウザで `index.html` を開くだけです。
+## ファイル構成（主要）
+- `index.html`: UI本体
+- `styles.css`: レイアウト/スタイル
+- `app.js`: アプリ本体ロジック
+- `src/commands/`: コマンド/ヘルパー（履歴・スナップ・テキスト等）
+- `tests/`: Vitestテスト
+- `e2e/`: Playwright E2Eテスト
+  - `e2e/minimal.e2e.js`: 最小 + 追加シナリオ
+  - `e2e/advanced.e2e.js`: 入出力・低解像度・履歴拡張シナリオ
+- `docs/`: 要件/計画/レポート
 
-## 3. 使い方（MVP）
-- 左の「新規スライド」「複製」「削除」でスライドを管理
-- 上部のボタンでテキスト・図形・画像を追加
-- 要素をドラッグして移動、枠の8点ハンドルでサイズ調整
-- 右（左パネル）プロパティで色や文字を調整
-- JSON保存/復元、SVG出力、localStorage保存が利用可能
-- 「SVGを取り込む」で .svg を読み込み、取り込んだ内容を編集
+## 起動方法（アプリ利用）
+`index.html` をブラウザで開きます。  
+ローカルWebサーバーは必須ではありません。
 
-## 4. 改善候補
-- undo/redo
-- スライド間移動のアニメーション
-- スナップ/ガイド線
-- 図形の整列補助
-- 配色テーマ設定
+## テスト実行方法
+
+### 1) 単体・統合テスト（Vitest）
+```bash
+npm test
+```
+
+ウォッチ実行:
+```bash
+npm run test:watch
+```
+
+### 2) E2Eテスト（Playwright）
+初回のみブラウザバイナリをインストール:
+```bash
+npx playwright install chromium
+```
+
+E2E全件実行:
+```bash
+npm run e2e
+```
+
+UIモード:
+```bash
+npm run e2e:ui
+```
+
+画面表示付きで特定ファイル実行:
+```bash
+npx playwright test e2e/advanced.e2e.js --headed --workers=1
+```
+
+## よく使うショートカット
+- `Cmd/Ctrl + Z`: Undo
+- `Cmd/Ctrl + Y`（または環境によって `Cmd + Shift + Z`）: Redo
+- `Cmd/Ctrl + C / X / V`: コピー / 切り取り / 貼り付け
+- `Delete / Backspace`: 選択要素削除（非テキスト編集中）
+- `Escape`: 編集キャンセル/選択解除
+- `Control + ArrowLeft / ArrowRight`: スライド移動
+
+## 関連ドキュメント
+- `docs/requirements.md`
+- `docs/testing_gap_plan.md`
+- `docs/e2e_minimal_plan.md`
+- `docs/e2e_basic_missing_plan.md`
+- `docs/e2e_failure_report.md`
