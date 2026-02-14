@@ -169,6 +169,16 @@ const dom = {
   propTextRow: document.getElementById('prop-text-row'),
   bringFront: document.getElementById('bring-front'),
   sendBack: document.getElementById('send-back'),
+  alignLeft: document.getElementById('align-left'),
+  alignCenter: document.getElementById('align-center'),
+  alignRight: document.getElementById('align-right'),
+  alignTop: document.getElementById('align-top'),
+  alignMiddle: document.getElementById('align-middle'),
+  alignBottom: document.getElementById('align-bottom'),
+  alignDistributeH: document.getElementById('align-distribute-h'),
+  alignDistributeV: document.getElementById('align-distribute-v'),
+  alignEqualWidth: document.getElementById('align-equal-width'),
+  alignEqualHeight: document.getElementById('align-equal-height'),
   instructions: document.getElementById('instructions'),
   undoAction: document.getElementById('undo-action'),
   redoAction: document.getElementById('redo-action'),
@@ -2917,6 +2927,96 @@ function setZOrder(direction) {
   render();
 }
 
+function alignSelectedElements(mode) {
+  const selectedElements = getSelectedElementElements();
+  if (selectedElements.length < 2) return;
+
+  const targets = selectedElements
+    .map((item) => ({
+      item,
+      bounds: getElementBounds(item),
+    }))
+    .filter((entry) => Number.isFinite(entry.bounds.x)
+      && Number.isFinite(entry.bounds.y)
+      && Number.isFinite(entry.bounds.width)
+      && Number.isFinite(entry.bounds.height));
+
+  if (targets.length < 2) return;
+
+  const reference = targets[0];
+  const minX = Math.min(...targets.map((entry) => entry.bounds.x));
+  const minY = Math.min(...targets.map((entry) => entry.bounds.y));
+  const maxX = Math.max(...targets.map((entry) => entry.bounds.x + entry.bounds.width));
+  const maxY = Math.max(...targets.map((entry) => entry.bounds.y + entry.bounds.height));
+  const groupCenterX = (minX + maxX) / 2;
+  const groupCenterY = (minY + maxY) / 2;
+
+  if (mode === 'left') {
+    targets.forEach(({ item }) => {
+      item.x = minX;
+    });
+  } else if (mode === 'center') {
+    targets.forEach(({ item, bounds }) => {
+      item.x = groupCenterX - (bounds.width / 2);
+    });
+  } else if (mode === 'right') {
+    targets.forEach(({ item, bounds }) => {
+      item.x = maxX - bounds.width;
+    });
+  } else if (mode === 'top') {
+    targets.forEach(({ item }) => {
+      item.y = minY;
+    });
+  } else if (mode === 'middle') {
+    targets.forEach(({ item, bounds }) => {
+      item.y = groupCenterY - (bounds.height / 2);
+    });
+  } else if (mode === 'bottom') {
+    targets.forEach(({ item, bounds }) => {
+      item.y = maxY - bounds.height;
+    });
+  } else if (mode === 'distribute-h') {
+    if (targets.length < 2) return;
+    const sorted = [...targets].sort((a, b) => a.bounds.x - b.bounds.x);
+    const totalWidth = sorted.reduce((sum, entry) => sum + entry.bounds.width, 0);
+    const gap = (maxX - minX - totalWidth) / (sorted.length - 1);
+    if (!Number.isFinite(gap)) return;
+
+    let currentX = minX;
+    for (const entry of sorted) {
+      entry.item.x = currentX;
+      currentX += entry.bounds.width + gap;
+    }
+  } else if (mode === 'distribute-v') {
+    if (targets.length < 2) return;
+    const sorted = [...targets].sort((a, b) => a.bounds.y - b.bounds.y);
+    const totalHeight = sorted.reduce((sum, entry) => sum + entry.bounds.height, 0);
+    const gap = (maxY - minY - totalHeight) / (sorted.length - 1);
+    if (!Number.isFinite(gap)) return;
+
+    let currentY = minY;
+    for (const entry of sorted) {
+      entry.item.y = currentY;
+      currentY += entry.bounds.height + gap;
+    }
+  } else if (mode === 'equal-width') {
+    const width = reference.bounds.width;
+    targets.forEach(({ item }) => {
+      item.width = width;
+    });
+  } else if (mode === 'equal-height') {
+    const height = reference.bounds.height;
+    targets.forEach(({ item }) => {
+      item.height = height;
+    });
+  } else {
+    return;
+  }
+
+  recordHistorySnapshot();
+  render();
+}
+
 function renderProperties() {
   const slide = currentSlide();
   const selectedElements = getSelectedElementElements();
@@ -2947,6 +3047,7 @@ function renderProperties() {
   };
 
   const hasSelection = selectedElements.length > 0;
+  const canAlign = selectedElements.length >= 2;
   const isTextSelection = hasSelection && selectedElements.length === 1 && item?.type === 'text';
   const supportsFill = hasSelection && selectedElements.every((selected) => selected.type !== 'svg-fragment');
   const typeLabel = item ? (
@@ -2980,6 +3081,16 @@ function renderProperties() {
   dom.propText.disabled = !isTextSelection;
   dom.bringFront.disabled = !hasSelection;
   dom.sendBack.disabled = !hasSelection;
+  dom.alignLeft.disabled = !canAlign;
+  dom.alignCenter.disabled = !canAlign;
+  dom.alignRight.disabled = !canAlign;
+  dom.alignTop.disabled = !canAlign;
+  dom.alignMiddle.disabled = !canAlign;
+  dom.alignBottom.disabled = !canAlign;
+  dom.alignDistributeH.disabled = !canAlign;
+  dom.alignDistributeV.disabled = !canAlign;
+  dom.alignEqualWidth.disabled = !canAlign;
+  dom.alignEqualHeight.disabled = !canAlign;
   dom.duplicateElement.disabled = !hasSelection;
   dom.deleteElement.disabled = !hasSelection;
 
@@ -3236,6 +3347,16 @@ function setupEvents() {
   dom.deleteElement.addEventListener('click', deleteElement);
   dom.bringFront.addEventListener('click', () => setZOrder(1));
   dom.sendBack.addEventListener('click', () => setZOrder(-1));
+  dom.alignLeft?.addEventListener('click', () => alignSelectedElements('left'));
+  dom.alignCenter?.addEventListener('click', () => alignSelectedElements('center'));
+  dom.alignRight?.addEventListener('click', () => alignSelectedElements('right'));
+  dom.alignTop?.addEventListener('click', () => alignSelectedElements('top'));
+  dom.alignMiddle?.addEventListener('click', () => alignSelectedElements('middle'));
+  dom.alignBottom?.addEventListener('click', () => alignSelectedElements('bottom'));
+  dom.alignDistributeH?.addEventListener('click', () => alignSelectedElements('distribute-h'));
+  dom.alignDistributeV?.addEventListener('click', () => alignSelectedElements('distribute-v'));
+  dom.alignEqualWidth?.addEventListener('click', () => alignSelectedElements('equal-width'));
+  dom.alignEqualHeight?.addEventListener('click', () => alignSelectedElements('equal-height'));
 
   dom.resetState.addEventListener('click', resetState);
   dom.exportJSON.addEventListener('click', () => {
