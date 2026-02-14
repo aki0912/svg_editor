@@ -201,7 +201,10 @@ async function getNorthWestHandle(page, elementId) {
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     try {
-      localStorage.clear();
+      if (!sessionStorage.getItem('__e2e_storage_initialized')) {
+        localStorage.clear();
+        sessionStorage.setItem('__e2e_storage_initialized', '1');
+      }
     } catch (_error) {
       // noop
     }
@@ -516,4 +519,71 @@ test('追加10: 要素複製ボタンと要素削除ボタンで件数が整合�
 
   await page.locator('#delete-element').click();
   await expect.poll(async () => (await getElementIds(page)).length).toBe(beforeCount);
+});
+
+test('追加11: Control+Arrow左右でスライドを切り替えできる', async ({ page }) => {
+  const jump = page.locator('#canvas-slide-jump');
+  await page.locator('#new-slide').click();
+  await page.locator('#new-slide').click();
+  await expect.poll(async () => jump.evaluate((el) => el.selectedIndex)).toBe(2);
+
+  await page.keyboard.press('Control+ArrowLeft');
+  await expect.poll(async () => jump.evaluate((el) => el.selectedIndex)).toBe(1);
+
+  await page.keyboard.press('Control+ArrowLeft');
+  await expect.poll(async () => jump.evaluate((el) => el.selectedIndex)).toBe(0);
+
+  await page.keyboard.press('Control+ArrowRight');
+  await expect.poll(async () => jump.evaluate((el) => el.selectedIndex)).toBe(1);
+});
+
+test('追加12: 全部リセットで初期状態（1スライド、要素なし）に戻る', async ({ page }) => {
+  await page.locator('#add-rect').click();
+  await page.locator('#new-slide').click();
+
+  page.once('dialog', async (dialog) => {
+    await dialog.accept();
+  });
+  await page.locator('#reset-state').click();
+
+  const jump = page.locator('#canvas-slide-jump');
+  await expect.poll(async () => jump.locator('option').count()).toBe(1);
+  await expect.poll(async () => jump.evaluate((el) => el.selectedIndex)).toBe(0);
+  await expect.poll(async () => (await getElementIds(page)).length).toBe(0);
+});
+
+test('追加13: ページ再読み込み後にlocalStorageから状態復元される', async ({ page }) => {
+  await page.locator('#add-rect').click();
+  const beforeCount = (await getElementIds(page)).length;
+  expect(beforeCount).toBeGreaterThan(0);
+
+  await page.reload();
+  await expect.poll(async () => (await getElementIds(page)).length).toBe(beforeCount);
+});
+
+test('追加14: 図形選択時はフォント系無効、テキスト選択時は有効', async ({ page }) => {
+  await page.locator('#add-rect').click();
+  await expect(page.locator('#prop-font-family')).toBeDisabled();
+  await expect(page.locator('#prop-font-size')).toBeDisabled();
+
+  await page.locator('#add-text').click();
+  await expect(page.locator('#prop-font-family')).toBeEnabled();
+  await expect(page.locator('#prop-font-size')).toBeEnabled();
+});
+
+test('追加15: Undo/Redoボタンの有効状態が履歴に追従する', async ({ page }) => {
+  await expect(page.locator('#undo-action')).toBeDisabled();
+  await expect(page.locator('#redo-action')).toBeDisabled();
+
+  await page.locator('#add-rect').click();
+  await expect(page.locator('#undo-action')).toBeEnabled();
+  await expect(page.locator('#redo-action')).toBeDisabled();
+
+  await page.locator('#undo-action').click();
+  await expect(page.locator('#undo-action')).toBeDisabled();
+  await expect(page.locator('#redo-action')).toBeEnabled();
+
+  await page.locator('#redo-action').click();
+  await expect(page.locator('#undo-action')).toBeEnabled();
+  await expect(page.locator('#redo-action')).toBeDisabled();
 });
