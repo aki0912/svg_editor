@@ -4,6 +4,7 @@ const STORAGE_KEY = 'svg_ppt_like_state_v1';
 const SVG_IMPORT_PADDING_RATIO = 0;
 const TEXT_EDIT_DRAG_THRESHOLD = 4;
 const SNAP_THRESHOLD_DEFAULT = 10;
+const SNAP_GUIDE_FADE_DURATION = 170;
 const textCommands = typeof window !== 'undefined'
   && window.EditorElementCommands
   && typeof window.EditorElementCommands === 'object'
@@ -86,6 +87,7 @@ const snapEngine = snapEngineFactory
 let activeTextEditor = null;
 let textMeasureContext = null;
 let activeSnapGuide = null;
+let snapGuideFadeTimer = null;
 
 const dom = {
   slideList: document.getElementById('slide-list'),
@@ -265,7 +267,50 @@ function updateHistoryControls() {
 }
 
 function clearSnapGuideState() {
+  if (snapGuideFadeTimer) {
+    clearTimeout(snapGuideFadeTimer);
+    snapGuideFadeTimer = null;
+  }
   activeSnapGuide = null;
+}
+
+function startSnapGuideFadeOut() {
+  if (!activeSnapGuide || activeSnapGuide.isFading) return;
+
+  if (snapGuideFadeTimer) {
+    clearTimeout(snapGuideFadeTimer);
+  }
+
+  activeSnapGuide = {
+    ...activeSnapGuide,
+    isFading: true,
+  };
+
+  const snapGuides = dom.canvas
+    ? Array.from(dom.canvas.querySelectorAll('.snap-guide-line, .snap-guide-marker'))
+    : [];
+  if (!snapGuides.length) {
+    clearSnapGuideState();
+    return;
+  }
+
+  snapGuides.forEach((guide) => {
+    if (guide.classList.contains('snap-guide-line')) {
+      guide.classList.add('snap-guide-line--fade');
+    }
+    if (guide.classList.contains('snap-guide-marker')) {
+      guide.classList.add('snap-guide-marker--fade');
+    }
+  });
+
+  snapGuideFadeTimer = setTimeout(() => {
+    if (dom.canvas) {
+      dom.canvas
+        .querySelectorAll('.snap-guide-line, .snap-guide-marker')
+        .forEach((guide) => guide.remove());
+    }
+    clearSnapGuideState();
+  }, SNAP_GUIDE_FADE_DURATION);
 }
 
 function getSnapThreshold() {
@@ -1648,11 +1693,20 @@ function renderCanvas() {
 
 function renderSnapGuides(slide) {
   if (!activeSnapGuide) return;
-  if (!state.pointerState || !['move', 'resize'].includes(state.pointerState.mode)) return;
 
-  const guideClass = activeSnapGuide.hasSnapX && activeSnapGuide.hasSnapY
-    ? 'snap-guide-line snap-guide-line--dual'
-    : 'snap-guide-line';
+  const isInteractiveGuide = Boolean(
+    state.pointerState
+    && ['move', 'resize'].includes(state.pointerState.mode),
+  );
+  if (!isInteractiveGuide && !activeSnapGuide.isFading) return;
+
+  const guideClass = ['snap-guide-line'];
+  if (activeSnapGuide.hasSnapX && activeSnapGuide.hasSnapY) {
+    guideClass.push('snap-guide-line--dual');
+  }
+  if (activeSnapGuide.isFading) {
+    guideClass.push('snap-guide-line--fade');
+  }
 
   if (activeSnapGuide.hasSnapX) {
     const guide = document.createElementNS(SVG_NS, 'line');
@@ -1661,7 +1715,7 @@ function renderSnapGuides(slide) {
     guide.setAttribute('x2', activeSnapGuide.guideX);
     guide.setAttribute('y2', slide.height);
     guide.setAttribute('vector-effect', 'non-scaling-stroke');
-    guide.classList.add(...guideClass.split(' '));
+    guide.classList.add(...guideClass);
     dom.canvas.appendChild(guide);
   }
 
@@ -1672,7 +1726,7 @@ function renderSnapGuides(slide) {
     guide.setAttribute('x2', slide.width);
     guide.setAttribute('y2', activeSnapGuide.guideY);
     guide.setAttribute('vector-effect', 'non-scaling-stroke');
-    guide.classList.add(...guideClass.split(' '));
+    guide.classList.add(...guideClass);
     dom.canvas.appendChild(guide);
   }
 
@@ -1682,7 +1736,7 @@ function renderSnapGuides(slide) {
     marker.setAttribute('cy', activeSnapGuide.guideY);
     marker.setAttribute('r', 5);
     marker.setAttribute('vector-effect', 'non-scaling-stroke');
-    marker.classList.add('snap-guide-marker');
+    marker.classList.add('snap-guide-marker', ...(activeSnapGuide.isFading ? ['snap-guide-marker--fade'] : []));
     dom.canvas.appendChild(marker);
   }
 }
@@ -2213,7 +2267,6 @@ function onPointerMove(event) {
 
 function onPointerUp(event) {
   if (!state.pointerState) return;
-  clearSnapGuideState();
   const shouldRecord = ['move', 'resize'].includes(state.pointerState.mode);
 
   if (state.pointerState.mode === 'edit-intent') {
@@ -2226,8 +2279,12 @@ function onPointerUp(event) {
   state.pointerState = null;
   if (shouldRecord) {
     recordHistorySnapshot();
+    saveLocal();
   }
-  saveLocal();
+
+  if (shouldRecord && (activeSnapGuide?.hasSnapX || activeSnapGuide?.hasSnapY)) {
+    startSnapGuideFadeOut();
+  }
 }
 
 function addElement(type) {

@@ -89,6 +89,9 @@
 - スナップのしきい値を 10px 固定化し、設定UIを削除。
   - `index.html` のスナップ補助パネルを削除
   - `app.js` で `snapThreshold` の入力UI依存を除去
+- スナップガイドをドラッグ終了時にフェードアウトするように調整。
+  - `app.js` で `pointerup` 時にガイドにフェード状態を適用し、完了後に消去
+  - `styles.css` に `snap-guide` のフェードアニメーションを追加
 
 ## 進捗更新（alignSnap 名寄せ完了）
 - alignSnap 名寄せを完了扱いへ更新

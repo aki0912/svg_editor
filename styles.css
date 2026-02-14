@@ -514,6 +514,10 @@ input[type="color"]::-webkit-color-swatch {
   stroke-dasharray: 6 5;
 }
 
+.snap-guide-line--fade {
+  animation: snapGuideFadeOut 170ms ease-out forwards;
+}
+
 .snap-guide-marker {
   fill: #38bdf8;
   stroke: #ffffff;
@@ -522,6 +526,20 @@ input[type="color"]::-webkit-color-swatch {
   pointer-events: none;
   vector-effect: non-scaling-stroke;
   filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.6));
+}
+
+.snap-guide-marker--fade {
+  animation: snapGuideFadeOut 170ms ease-out forwards;
+}
+
+@keyframes snapGuideFadeOut {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
 }
 
 #slide-title {
