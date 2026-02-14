@@ -5,6 +5,7 @@ const SVG_IMPORT_PADDING_RATIO = 0;
 const TEXT_EDIT_DRAG_THRESHOLD = 4;
 const SNAP_THRESHOLD_DEFAULT = 10;
 const SNAP_GUIDE_FADE_DURATION = 170;
+const SNAP_RESIZE_MIN_SIZE = 20;
 const textCommands = typeof window !== 'undefined'
   && window.EditorElementCommands
   && typeof window.EditorElementCommands === 'object'
@@ -358,10 +359,27 @@ function applyResizeSnap(next, handle, baseBounds) {
 
   const rightEdge = next.x + next.width;
   const bottomEdge = next.y + next.height;
-  const fixedLeft = baseBounds.x;
-  const fixedRight = baseBounds.x + baseBounds.width;
-  const fixedTop = baseBounds.y;
-  const fixedBottom = baseBounds.y + baseBounds.height;
+  const fixedLeft = Number.isFinite(baseBounds.x) ? baseBounds.x : next.x;
+  const fixedTop = Number.isFinite(baseBounds.y) ? baseBounds.y : next.y;
+  const baseWidth = Number.isFinite(baseBounds.width) ? baseBounds.width : Number.isFinite(next.width) ? next.width : 0;
+  const baseHeight = Number.isFinite(baseBounds.height) ? baseBounds.height : Number.isFinite(next.height) ? next.height : 0;
+  const fixedRight = fixedLeft + Math.max(SNAP_RESIZE_MIN_SIZE, baseWidth);
+  const fixedBottom = fixedTop + Math.max(SNAP_RESIZE_MIN_SIZE, baseHeight);
+
+  const moveHorizontal = hasMoveLeft && hasMoveRight
+    ? 'left'
+    : hasMoveLeft
+      ? 'left'
+      : hasMoveRight
+        ? 'right'
+        : 'none';
+  const moveVertical = hasMoveTop && hasMoveBottom
+    ? 'top'
+    : hasMoveTop
+      ? 'top'
+      : hasMoveBottom
+        ? 'bottom'
+        : 'none';
 
   const snapped = {
     x: next.x,
@@ -375,7 +393,7 @@ function applyResizeSnap(next, handle, baseBounds) {
   let hasSnapX = false;
   let hasSnapY = false;
 
-  if (hasMoveLeft) {
+  if (moveHorizontal === 'left') {
     const leftSnap = snapEngine.snapMove({
       x: next.x,
       y: next.y,
@@ -388,20 +406,18 @@ function applyResizeSnap(next, handle, baseBounds) {
       snapThreshold: getSnapThreshold(),
     });
 
+    const alignedLeft = Number.isFinite(leftSnap.x) ? leftSnap.x : next.x;
+    const alignedGuide = Number.isFinite(leftSnap.guideX) ? leftSnap.guideX : alignedLeft;
+    const clampedLeft = Math.min(alignedLeft, fixedRight - SNAP_RESIZE_MIN_SIZE);
+    snapped.x = clampedLeft;
+    snapped.width = Math.max(SNAP_RESIZE_MIN_SIZE, fixedRight - clampedLeft);
     if (leftSnap.hasSnapX) {
-      const alignedLeft = Number.isFinite(leftSnap.x) ? leftSnap.x : next.x;
-      const alignedGuide = Number.isFinite(leftSnap.guideX) ? leftSnap.guideX : alignedLeft;
-      snapped.x = alignedLeft;
-      snapped.width = Math.max(20, fixedRight - alignedLeft);
       guideX = alignedGuide;
       hasSnapX = true;
-    } else {
-      snapped.x = next.x;
-      snapped.width = Math.max(20, fixedRight - next.x);
     }
   }
 
-  if (hasMoveRight) {
+  if (moveHorizontal === 'right') {
     const rightSnap = snapEngine.snapMove({
       x: rightEdge,
       y: next.y,
@@ -415,15 +431,16 @@ function applyResizeSnap(next, handle, baseBounds) {
     });
 
     const alignedRight = Number.isFinite(rightSnap.guideX) ? rightSnap.guideX : rightEdge;
+    const clampedRight = Math.max(alignedRight, fixedLeft + SNAP_RESIZE_MIN_SIZE);
+    snapped.x = fixedLeft;
+    snapped.width = Math.max(SNAP_RESIZE_MIN_SIZE, clampedRight - fixedLeft);
     if (rightSnap.hasSnapX) {
-      snapped.width = Math.max(20, alignedRight - fixedLeft);
-      snapped.x = fixedLeft;
       guideX = alignedRight;
       hasSnapX = true;
     }
   }
 
-  if (hasMoveTop) {
+  if (moveVertical === 'top') {
     const topSnap = snapEngine.snapMove({
       x: next.x,
       y: next.y,
@@ -436,20 +453,18 @@ function applyResizeSnap(next, handle, baseBounds) {
       snapThreshold: getSnapThreshold(),
     });
 
+    const alignedTop = Number.isFinite(topSnap.y) ? topSnap.y : next.y;
+    const alignedGuide = Number.isFinite(topSnap.guideY) ? topSnap.guideY : alignedTop;
+    const clampedTop = Math.min(alignedTop, fixedBottom - SNAP_RESIZE_MIN_SIZE);
+    snapped.y = clampedTop;
+    snapped.height = Math.max(SNAP_RESIZE_MIN_SIZE, fixedBottom - clampedTop);
     if (topSnap.hasSnapY) {
-      const alignedTop = Number.isFinite(topSnap.y) ? topSnap.y : next.y;
-      const alignedGuide = Number.isFinite(topSnap.guideY) ? topSnap.guideY : alignedTop;
-      snapped.y = alignedTop;
-      snapped.height = Math.max(20, fixedBottom - alignedTop);
       guideY = alignedGuide;
       hasSnapY = true;
-    } else {
-      snapped.y = next.y;
-      snapped.height = Math.max(20, fixedBottom - next.y);
     }
   }
 
-  if (hasMoveBottom) {
+  if (moveVertical === 'bottom') {
     const bottomSnap = snapEngine.snapMove({
       x: next.x,
       y: bottomEdge,
@@ -463,9 +478,10 @@ function applyResizeSnap(next, handle, baseBounds) {
     });
 
     const alignedBottom = Number.isFinite(bottomSnap.guideY) ? bottomSnap.guideY : bottomEdge;
+    const clampedBottom = Math.max(alignedBottom, fixedTop + SNAP_RESIZE_MIN_SIZE);
+    snapped.y = fixedTop;
+    snapped.height = Math.max(SNAP_RESIZE_MIN_SIZE, clampedBottom - fixedTop);
     if (bottomSnap.hasSnapY) {
-      snapped.height = Math.max(20, alignedBottom - fixedTop);
-      snapped.y = fixedTop;
       guideY = alignedBottom;
       hasSnapY = true;
     }
