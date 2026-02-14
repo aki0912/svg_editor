@@ -1998,6 +1998,12 @@ function getTextRenderTopY(element, lineHeight = null) {
   return Number(element?.y) || 0;
 }
 
+function getTextRenderBaselineY(element, fontSize, options = {}) {
+  const topY = getTextRenderTopY(element);
+  const ascent = estimateTextBaselineAscent(fontSize, options);
+  return topY + ascent;
+}
+
 function getTextAlignCssValue(textAnchor) {
   if (textCommands && typeof textCommands.getTextAlignCssValue === 'function') {
     return textCommands.getTextAlignCssValue(textAnchor);
@@ -2183,6 +2189,12 @@ function createThumbnailTextNode(el) {
   const text = document.createElementNS(SVG_NS, 'text');
   const textLines = (el.text || '').split('\n');
   const safeFontFamily = normalizeFontFamilyValue(el.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
+  const renderBaselineY = getTextRenderBaselineY(el, fontSize, {
+    fontFamily: safeFontFamily,
+    fontWeight,
+    fontStyle,
+    sampleText: textLines[0] || el.text || '',
+  });
 
   textLines.forEach((line, index) => {
     const tspan = document.createElementNS(SVG_NS, 'tspan');
@@ -2196,7 +2208,7 @@ function createThumbnailTextNode(el) {
   });
 
   text.setAttribute('x', String(lineX));
-  text.setAttribute('y', String(getTextRenderTopY(el, lineHeight)));
+  text.setAttribute('y', String(renderBaselineY));
   text.setAttribute('fill', el.fill || '#111827');
   text.setAttribute('font-size', String(fontSize));
   text.setAttribute('font-family', safeFontFamily);
@@ -2204,8 +2216,8 @@ function createThumbnailTextNode(el) {
   text.setAttribute('font-style', fontStyle);
   text.setAttribute('text-anchor', textAnchor);
   text.setAttribute('letter-spacing', String(letterSpacing));
-  text.setAttribute('dominant-baseline', el.dominantBaseline || 'hanging');
-  text.setAttribute('alignment-baseline', el.alignmentBaseline || 'auto');
+  text.setAttribute('dominant-baseline', 'alphabetic');
+  text.setAttribute('alignment-baseline', 'baseline');
   text.setAttribute('stroke', el.stroke || 'none');
   text.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 0);
   g.appendChild(text);
@@ -2579,6 +2591,12 @@ function renderElement(el) {
     const textLines = (el.text || '').split('\n');
     const lineHeight = getTextLineHeight(fontSize, lineSpacing);
     const lineX = anchorOffsetX;
+    const renderBaselineY = getTextRenderBaselineY(el, fontSize, {
+      fontFamily,
+      fontWeight,
+      fontStyle,
+      sampleText: textLines[0] || el.text || '',
+    });
 
     textLines.forEach((line, index) => {
       const tspan = document.createElementNS(SVG_NS, 'tspan');
@@ -2592,7 +2610,7 @@ function renderElement(el) {
     });
 
     text.setAttribute('x', lineX);
-    text.setAttribute('y', getTextRenderTopY(el, lineHeight));
+    text.setAttribute('y', renderBaselineY);
     text.setAttribute('fill', el.fill || '#111827');
     text.setAttribute('font-size', String(fontSize));
     text.setAttribute('font-family', fontFamily);
@@ -2600,8 +2618,8 @@ function renderElement(el) {
     text.setAttribute('font-style', fontStyle);
     text.setAttribute('text-anchor', textAnchor);
     text.setAttribute('letter-spacing', String(letterSpacing));
-    text.setAttribute('dominant-baseline', el.dominantBaseline || 'hanging');
-    text.setAttribute('alignment-baseline', el.alignmentBaseline || 'auto');
+    text.setAttribute('dominant-baseline', 'alphabetic');
+    text.setAttribute('alignment-baseline', 'baseline');
     text.setAttribute('stroke', el.stroke || 'none');
     text.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 0);
     g.appendChild(text);
