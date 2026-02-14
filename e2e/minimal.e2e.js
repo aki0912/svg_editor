@@ -1,0 +1,296 @@
+import { test, expect } from '@playwright/test';
+
+async function getCanvasMetrics(page) {
+  const canvas = page.locator('#canvas');
+  const box = await canvas.boundingBox();
+  if (!box) {
+    throw new Error('canvas bounding box is not available');
+  }
+  const viewBox = await canvas.evaluate((svg) => {
+    const vb = svg.viewBox.baseVal;
+    return { x: vb.x, y: vb.y, width: vb.width, height: vb.height };
+  });
+  return { box, viewBox };
+}
+
+function svgPointToPage(metrics, point) {
+  return {
+    x: metrics.box.x + (((point.x - metrics.viewBox.x) / metrics.viewBox.width) * metrics.box.width),
+    y: metrics.box.y + (((point.y - metrics.viewBox.y) / metrics.viewBox.height) * metrics.box.height),
+  };
+}
+
+async function clickSvgPoint(page, point) {
+  const metrics = await getCanvasMetrics(page);
+  const target = svgPointToPage(metrics, point);
+  await page.mouse.click(target.x, target.y);
+}
+
+async function dragSvgPoint(page, fromPoint, delta) {
+  const metrics = await getCanvasMetrics(page);
+  const from = svgPointToPage(metrics, fromPoint);
+  const to = svgPointToPage(metrics, {
+    x: fromPoint.x + delta.x,
+    y: fromPoint.y + delta.y,
+  });
+
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 12 });
+  await page.mouse.up();
+}
+
+async function getElementIds(page) {
+  return page.evaluate(() => {
+    const nodes = Array.from(document.querySelectorAll('#canvas [data-element-id]'));
+    const ids = nodes
+      .map((node) => node.getAttribute('data-element-id'))
+      .filter((id) => typeof id === 'string' && id.trim().length > 0);
+    return Array.from(new Set(ids));
+  });
+}
+
+async function getLastElementId(page) {
+  const ids = await getElementIds(page);
+  if (!ids.length) {
+    throw new Error('no drawable elements found');
+  }
+  return ids[ids.length - 1];
+}
+
+async function getElementGeometry(page, elementId) {
+  return page.evaluate((id) => {
+    const isOverlay = (node) => {
+      const className = String(node.getAttribute('class') || '').toLowerCase();
+      const dataRole = String(node.getAttribute('data-role') || '').toLowerCase();
+      return (
+        className.includes('handle')
+        || className.includes('selection')
+        || className.includes('rotate')
+        || className.includes('snap')
+        || dataRole.includes('handle')
+        || dataRole.includes('selection')
+        || dataRole.includes('rotate')
+        || node.hasAttribute('data-handle')
+        || node.hasAttribute('data-resize-handle')
+      );
+    };
+
+    const group = document.querySelector(`#canvas [data-element-id="${id}"]`);
+    if (!group) return null;
+
+    const drawableTags = new Set(['rect', 'ellipse', 'circle', 'image', 'line', 'polygon', 'polyline', 'path', 'text']);
+    const nodes = Array.from(group.querySelectorAll('*'));
+    const drawable = nodes.find((node) => drawableTags.has(node.tagName.toLowerCase()) && !isOverlay(node));
+    const target = drawable || group;
+
+    const tag = target.tagName.toLowerCase();
+    if (tag === 'rect' || tag === 'image') {
+      return {
+        x: Number(target.getAttribute('x') || 0),
+        y: Number(target.getAttribute('y') || 0),
+        width: Number(target.getAttribute('width') || 0),
+        height: Number(target.getAttribute('height') || 0),
+      };
+    }
+    if (tag === 'circle') {
+      const cx = Number(target.getAttribute('cx') || 0);
+      const cy = Number(target.getAttribute('cy') || 0);
+      const r = Number(target.getAttribute('r') || 0);
+      return {
+        x: cx - r,
+        y: cy - r,
+        width: r * 2,
+        height: r * 2,
+      };
+    }
+    if (tag === 'ellipse') {
+      const cx = Number(target.getAttribute('cx') || 0);
+      const cy = Number(target.getAttribute('cy') || 0);
+      const rx = Number(target.getAttribute('rx') || 0);
+      const ry = Number(target.getAttribute('ry') || 0);
+      return {
+        x: cx - rx,
+        y: cy - ry,
+        width: rx * 2,
+        height: ry * 2,
+      };
+    }
+    if (tag === 'line') {
+      const x1 = Number(target.getAttribute('x1') || 0);
+      const y1 = Number(target.getAttribute('y1') || 0);
+      const x2 = Number(target.getAttribute('x2') || 0);
+      const y2 = Number(target.getAttribute('y2') || 0);
+      return {
+        x: Math.min(x1, x2),
+        y: Math.min(y1, y2),
+        width: Math.abs(x2 - x1),
+        height: Math.abs(y2 - y1),
+      };
+    }
+
+    const bbox = target.getBBox();
+    return {
+      x: bbox.x,
+      y: bbox.y,
+      width: bbox.width,
+      height: bbox.height,
+    };
+  }, elementId);
+}
+
+async function getElementCenter(page, elementId) {
+  const geometry = await getElementGeometry(page, elementId);
+  if (!geometry) throw new Error(`geometry not found for ${elementId}`);
+  return {
+    x: geometry.x + (geometry.width / 2),
+    y: geometry.y + (geometry.height / 2),
+  };
+}
+
+async function clickElementCenter(page, elementId) {
+  const center = await getElementCenter(page, elementId);
+  await clickSvgPoint(page, center);
+}
+
+async function dragElementBy(page, elementId, delta) {
+  const center = await getElementCenter(page, elementId);
+  await dragSvgPoint(page, center, delta);
+}
+
+async function getNorthWestHandle(page, elementId) {
+  return page.evaluate((id) => {
+    const handleNodes = Array.from(
+      document.querySelectorAll(`#canvas .selection-handle[data-element-id="${id}"]`),
+    ).filter((node) => String(node.getAttribute('data-handle') || '').toLowerCase() !== 'rotate');
+    if (!handleNodes.length) return null;
+
+    const exact = handleNodes.find(
+      (node) => String(node.getAttribute('data-handle') || '').toLowerCase() === 'nw',
+    );
+    if (exact) {
+      const box = exact.getBBox();
+      return {
+        x: box.x + (box.width / 2),
+        y: box.y + (box.height / 2),
+      };
+    }
+
+    const points = handleNodes.map((node) => {
+      const bbox = node.getBBox();
+      return {
+        x: bbox.x + (bbox.width / 2),
+        y: bbox.y + (bbox.height / 2),
+      };
+    });
+    const minY = Math.min(...points.map((point) => point.y));
+    const topBand = points
+      .filter((point) => Math.abs(point.y - minY) <= 2)
+      .sort((a, b) => a.x - b.x);
+    if (topBand.length) return topBand[0];
+    return points.sort((a, b) => (a.x + a.y) - (b.x + b.y))[0];
+  }, elementId);
+}
+
+test.beforeEach(async ({ page }) => {
+  await page.goto('/index.html');
+});
+
+test('最小1: オブジェクト選択/解除（空白クリック含む）', async ({ page }) => {
+  await page.locator('#add-rect').click();
+  const id = await getLastElementId(page);
+
+  await expect(page.locator('#selected-label')).not.toHaveValue('');
+  await clickSvgPoint(page, { x: 1350, y: 760 });
+  await expect(page.locator('#selected-label')).toHaveValue('');
+
+  await clickElementCenter(page, id);
+  await expect(page.locator('#selected-label')).not.toHaveValue('');
+});
+
+test('最小2: ドラッグ移動と左上ハンドルリサイズ', async ({ page }) => {
+  await page.locator('#add-rect').click();
+  const id = await getLastElementId(page);
+
+  const beforeMove = await getElementGeometry(page, id);
+  await dragElementBy(page, id, { x: 120, y: 80 });
+  const afterMove = await getElementGeometry(page, id);
+
+  expect(afterMove.x).toBeGreaterThan(beforeMove.x + 40);
+  expect(afterMove.y).toBeGreaterThan(beforeMove.y + 20);
+
+  await clickElementCenter(page, id);
+  await expect.poll(async () => {
+    const point = await getNorthWestHandle(page, id);
+    return point ? 1 : 0;
+  }).toBe(1);
+  const nwHandle = await getNorthWestHandle(page, id);
+  expect(nwHandle).toBeTruthy();
+
+  await dragSvgPoint(page, nwHandle, { x: -50, y: -40 });
+  const afterResize = await getElementGeometry(page, id);
+
+  expect(afterResize.x).toBeLessThan(afterMove.x - 5);
+  expect(afterResize.y).toBeLessThan(afterMove.y - 5);
+  expect(afterResize.width).toBeGreaterThan(afterMove.width + 5);
+  expect(afterResize.height).toBeGreaterThan(afterMove.height + 5);
+});
+
+test('最小3: テキスト編集開始時の位置ズレなし', async ({ page }) => {
+  await page.locator('#add-text').click();
+  const id = await getLastElementId(page);
+
+  const geometry = await getElementGeometry(page, id);
+  const metrics = await getCanvasMetrics(page);
+  const originPage = svgPointToPage(metrics, { x: geometry.x, y: geometry.y });
+
+  await clickElementCenter(page, id);
+  const center = await getElementCenter(page, id);
+  const centerPage = svgPointToPage(metrics, center);
+  await page.mouse.dblclick(centerPage.x, centerPage.y);
+
+  const editor = page.locator('#canvas textarea, #canvas [contenteditable="true"], #canvas input[type="text"]');
+  await expect(editor.first()).toBeVisible();
+  const editorBox = await editor.first().boundingBox();
+  expect(editorBox).toBeTruthy();
+
+  const deltaX = Math.abs(editorBox.x - originPage.x);
+  const deltaY = Math.abs(editorBox.y - originPage.y);
+  expect(deltaX).toBeLessThan(20);
+  expect(deltaY).toBeLessThan(20);
+});
+
+test('最小4: Undo/Redoで移動を巻き戻し・再適用できる', async ({ page }) => {
+  await page.locator('#add-rect').click();
+  const id = await getLastElementId(page);
+
+  const before = await getElementGeometry(page, id);
+  await dragElementBy(page, id, { x: 140, y: 0 });
+  const moved = await getElementGeometry(page, id);
+  expect(moved.x).toBeGreaterThan(before.x + 60);
+
+  await page.locator('#undo-action').click();
+  await expect.poll(async () => (await getElementGeometry(page, id)).x).toBeLessThanOrEqual(before.x + 5);
+
+  await page.locator('#redo-action').click();
+  await expect.poll(async () => (await getElementGeometry(page, id)).x).toBeGreaterThan(before.x + 60);
+});
+
+test('最小5: スライド切替UIと一覧の同期', async ({ page }) => {
+  await page.locator('#new-slide').click();
+
+  const select = page.locator('#canvas-slide-jump');
+  const optionCount = await select.locator('option').count();
+  const selectedAfterCreate = await select.evaluate((el) => el.selectedIndex);
+  expect(optionCount).toBeGreaterThanOrEqual(2);
+  expect(selectedAfterCreate).toBe(1);
+
+  const overviewCount = await page.locator('#slide-overview > *').count();
+  expect(overviewCount).toBe(optionCount);
+
+  await page.locator('#canvas-prev-slide').click();
+  await expect.poll(async () => select.evaluate((el) => el.selectedIndex)).toBe(0);
+
+  await page.locator('#slide-overview > *').nth(1).click();
+  await expect.poll(async () => select.evaluate((el) => el.selectedIndex)).toBe(1);
+});

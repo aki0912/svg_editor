@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1366 768">
+  <rect x="0" y="0" width="1366" height="768" fill="#f5f7fa" />
+  <text
+    id="title"
+    x="106"
+    y="96"
+    font-size="64"
+    font-family="Yu Gothic, sans-serif"
+    font-weight="700"
+    text-anchor="start"
+    dominant-baseline="alphabetic"
+  >2026年 日本株市場見通し</text>
+  <text
+    id="subtitle"
+    x="106"
+    y="160"
+    font-size="36"
+    font-family="Yu Gothic, sans-serif"
+    font-weight="700"
+    text-anchor="start"
+    dominant-baseline="hanging"
+  >ベースケース：緩やかな成長・インフレ定着</text>
+  <text
+    id="section"
+    x="106"
+    y="254"
+    font-size="40"
+    font-family="Yu Gothic, sans-serif"
+    font-weight="700"
+    text-anchor="start"
+    dominant-baseline="middle"
+  >市場見通し（ベースケース）</text>
+  <text
+    id="outlook"
+    x="106"
+    y="330"
+    font-size="28"
+    font-family="Yu Gothic, sans-serif"
+    font-weight="400"
+    text-anchor="start"
+    dominant-baseline="text-after-edge"
+  >利益成長・賃上げ・値上げ定着でEPS +6〜8%</text>
+</svg>
