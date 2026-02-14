@@ -74,8 +74,20 @@
         <header class="status-bar">
           <span id="slide-title"></span>
           <div class="history-controls" aria-label="履歴操作">
-            <button id="undo-action" type="button" class="history-btn" disabled>戻る</button>
-            <button id="redo-action" type="button" class="history-btn" disabled>進む</button>
+            <button id="undo-action" type="button" class="history-btn" aria-label="Undo" title="Undo" disabled>
+              <svg class="history-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M9 14L4 9l5-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+                <path d="M4 9h11a4 4 0 1 1 0 8h-1" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+              </svg>
+              <span class="visually-hidden">Undo</span>
+            </button>
+            <button id="redo-action" type="button" class="history-btn" aria-label="Redo" title="Redo" disabled>
+              <svg class="history-icon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m15 14 5-5-5-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+                <path d="M20 9H9a4 4 0 1 0 0 8h1" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+              </svg>
+              <span class="visually-hidden">Redo</span>
+            </button>
           </div>
           <div class="slide-nav-inline" aria-label="スライド切り替え">
             <button id="canvas-prev-slide" type="button">◀</button>

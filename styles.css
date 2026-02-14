@@ -535,8 +535,13 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 .history-btn {
-  min-width: 72px;
-  padding: 6px 10px;
+  min-width: 42px;
+  min-height: 34px;
+  padding: 6px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
   border-radius: var(--radius-sm);
   background: linear-gradient(135deg, var(--success) 0%, #047857 100%);
   color: white;
@@ -554,6 +559,28 @@ input[type="color"]::-webkit-color-swatch {
   background: var(--bg-tertiary);
   border-color: var(--border);
   color: var(--text-muted);
+}
+
+.history-icon {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.history-btn::before {
+  display: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .snap-guide-line {
