@@ -141,6 +141,12 @@ const dom = {
   addDiamond: document.getElementById('add-diamond'),
   addImage: document.getElementById('add-image'),
   newSlide: document.getElementById('new-slide'),
+  prevSlide: document.getElementById('prev-slide'),
+  slideJump: document.getElementById('slide-jump'),
+  nextSlide: document.getElementById('next-slide'),
+  canvasPrevSlide: document.getElementById('canvas-prev-slide'),
+  canvasSlideJump: document.getElementById('canvas-slide-jump'),
+  canvasNextSlide: document.getElementById('canvas-next-slide'),
   slideTemplate: document.getElementById('slide-template'),
   duplicateSlide: document.getElementById('duplicate-slide'),
   deleteSlide: document.getElementById('delete-slide'),
@@ -2076,20 +2082,65 @@ function render() {
 
 function renderSlideList() {
   dom.slideList.innerHTML = '';
+  const jumpControls = [dom.slideJump, dom.canvasSlideJump].filter(Boolean);
+  jumpControls.forEach((jump) => {
+    jump.innerHTML = '';
+  });
+  const prevButtons = [dom.prevSlide, dom.canvasPrevSlide].filter(Boolean);
+  const nextButtons = [dom.nextSlide, dom.canvasNextSlide].filter(Boolean);
 
   state.slides.forEach((slide, index) => {
     const li = document.createElement('li');
     const btn = document.createElement('button');
+    const title = `${index + 1}. ${slide.title}`;
     li.className = index === state.currentSlideIndex ? 'active' : '';
-    btn.textContent = `${index + 1}. ${slide.title}`;
+    btn.textContent = title;
     btn.addEventListener('click', () => {
-      state.currentSlideIndex = index;
-      setSelectedElementIds([]);
-      render();
+      goToSlide(index);
     });
     li.appendChild(btn);
     dom.slideList.appendChild(li);
+
+    jumpControls.forEach((jump) => {
+      const option = document.createElement('option');
+      option.value = String(index);
+      option.textContent = title;
+      option.selected = index === state.currentSlideIndex;
+      jump.appendChild(option);
+    });
   });
+
+  prevButtons.forEach((button) => {
+    button.disabled = state.currentSlideIndex <= 0;
+  });
+  nextButtons.forEach((button) => {
+    button.disabled = state.currentSlideIndex >= state.slides.length - 1;
+  });
+  jumpControls.forEach((jump) => {
+    jump.value = String(state.currentSlideIndex);
+  });
+}
+
+function goToSlide(nextIndex, options = {}) {
+  const total = state.slides.length;
+  if (!Number.isFinite(total) || total <= 0) return;
+  const parsed = Number(nextIndex);
+  const target = Math.min(Math.max(Number.isFinite(parsed) ? Math.round(parsed) : state.currentSlideIndex, 0), total - 1);
+  if (target === state.currentSlideIndex) {
+    if (dom.slideJump) dom.slideJump.value = String(state.currentSlideIndex);
+    if (dom.canvasSlideJump) dom.canvasSlideJump.value = String(state.currentSlideIndex);
+    return;
+  }
+
+  if (activeTextEditor) {
+    closeActiveTextEditor({ commit: true, rerender: false });
+  }
+
+  state.currentSlideIndex = target;
+  setSelectedElementIds([]);
+  if (options.render !== false) {
+    render();
+  }
 }
 
 function renderCanvas() {
@@ -3800,6 +3851,28 @@ function setupEvents() {
   dom.newSlide.addEventListener('click', newSlide);
   dom.duplicateSlide.addEventListener('click', duplicateSlide);
   dom.deleteSlide.addEventListener('click', removeCurrentSlide);
+  if (dom.prevSlide) {
+    dom.prevSlide.addEventListener('click', () => goToSlide(state.currentSlideIndex - 1));
+  }
+  if (dom.canvasPrevSlide) {
+    dom.canvasPrevSlide.addEventListener('click', () => goToSlide(state.currentSlideIndex - 1));
+  }
+  if (dom.nextSlide) {
+    dom.nextSlide.addEventListener('click', () => goToSlide(state.currentSlideIndex + 1));
+  }
+  if (dom.canvasNextSlide) {
+    dom.canvasNextSlide.addEventListener('click', () => goToSlide(state.currentSlideIndex + 1));
+  }
+  if (dom.slideJump) {
+    dom.slideJump.addEventListener('change', (event) => {
+      goToSlide(Number(event.target.value));
+    });
+  }
+  if (dom.canvasSlideJump) {
+    dom.canvasSlideJump.addEventListener('change', (event) => {
+      goToSlide(Number(event.target.value));
+    });
+  }
 
   dom.addText.addEventListener('click', () => addElement('text'));
   dom.addRect.addEventListener('click', () => addElement('rect'));
@@ -3905,6 +3978,7 @@ function setupEvents() {
     const isTextControl = targetTag === 'input' || targetTag === 'textarea';
     const key = event.key?.toLowerCase();
     const isShortcut = event.metaKey || event.ctrlKey;
+    const isSlideNavShortcut = !isTextControl && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey;
     const isUndoShortcut = (event.metaKey || event.ctrlKey) && !event.altKey && !isTextControl && key === 'z';
     const isRedoShortcut = (event.metaKey || event.ctrlKey) && !isTextControl && (key === 'y' || (event.shiftKey && key === 'z'));
     const isCopyShortcut = isShortcut && !isTextControl && key === 'c' && !event.altKey;
@@ -3921,6 +3995,18 @@ function setupEvents() {
     if (isRedoShortcut) {
       event.preventDefault();
       redoHistory();
+      return;
+    }
+
+    if (isSlideNavShortcut && key === 'arrowleft') {
+      event.preventDefault();
+      goToSlide(state.currentSlideIndex - 1);
+      return;
+    }
+
+    if (isSlideNavShortcut && key === 'arrowright') {
+      event.preventDefault();
+      goToSlide(state.currentSlideIndex + 1);
       return;
     }
 

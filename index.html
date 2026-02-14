@@ -27,6 +27,11 @@
               <option value="two-column">二列レイアウト</option>
             </select>
           </label>
+          <div class="slide-navigation">
+            <button id="prev-slide" type="button">◀ 前</button>
+            <select id="slide-jump" aria-label="スライド直接選択"></select>
+            <button id="next-slide" type="button">次 ▶</button>
+          </div>
           <ul id="slide-list"></ul>
         </section>
 
@@ -169,6 +174,11 @@
       <main class="main">
         <header class="status-bar">
           <span id="slide-title"></span>
+          <div class="slide-nav-inline" aria-label="スライド切り替え">
+            <button id="canvas-prev-slide" type="button">◀</button>
+            <select id="canvas-slide-jump" aria-label="スライド直接選択"></select>
+            <button id="canvas-next-slide" type="button">▶</button>
+          </div>
           <span id="instructions">ドラッグして移動 • 端点で拡大縮小 • シングルクリックでテキストを直接編集</span>
         </header>
 
