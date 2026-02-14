@@ -128,7 +128,11 @@ const dom = {
   canvas: document.getElementById('canvas'),
   addText: document.getElementById('add-text'),
   addRect: document.getElementById('add-rect'),
+  addRoundedRect: document.getElementById('add-rounded-rect'),
   addCircle: document.getElementById('add-circle'),
+  addLine: document.getElementById('add-line'),
+  addArrow: document.getElementById('add-arrow'),
+  addDiamond: document.getElementById('add-diamond'),
   addImage: document.getElementById('add-image'),
   newSlide: document.getElementById('new-slide'),
   duplicateSlide: document.getElementById('duplicate-slide'),
@@ -147,6 +151,8 @@ const dom = {
   propFillLabel: document.getElementById('prop-fill-label'),
   propStroke: document.getElementById('prop-stroke'),
   propStrokeLabel: document.getElementById('prop-stroke-label'),
+  propShapeRotation: document.getElementById('prop-shape-rotation'),
+  propShapeRotationRow: document.getElementById('prop-shape-rotation-row'),
   propFontSize: document.getElementById('prop-font-size'),
   propFontSizeRow: document.getElementById('prop-font-size-row'),
   propTextAlign: document.getElementById('prop-text-align'),
@@ -227,6 +233,12 @@ function normalizeTextFontWeight(value) {
 function normalizeTextFontStyle(value) {
   const normalized = String(value || 'normal').toLowerCase().trim();
   return normalized === 'italic' || normalized === 'oblique' ? 'italic' : 'normal';
+}
+
+function normalizeShapeRotation(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return ((parsed % 360) + 360) % 360;
 }
 
 function normalizeTextAlign(value) {
@@ -2068,6 +2080,20 @@ function renderElement(el) {
     g.appendChild(rect);
   }
 
+  if (el.type === 'roundedRect') {
+    const rect = document.createElementNS(SVG_NS, 'rect');
+    rect.setAttribute('x', el.x);
+    rect.setAttribute('y', el.y);
+    rect.setAttribute('width', el.width);
+    rect.setAttribute('height', el.height);
+    rect.setAttribute('rx', Number.isFinite(el.rx) ? el.rx : 16);
+    rect.setAttribute('ry', Number.isFinite(el.ry) ? el.ry : 16);
+    rect.setAttribute('fill', el.fill || '#4ea5ff');
+    rect.setAttribute('stroke', el.stroke || '#003f7a');
+    rect.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
+    g.appendChild(rect);
+  }
+
   if (el.type === 'circle') {
     const cX = el.x + el.width / 2;
     const cY = el.y + el.height / 2;
@@ -2131,6 +2157,54 @@ function renderElement(el) {
     g.appendChild(inlineSvg);
   }
 
+  if (el.type === 'line' || el.type === 'arrow') {
+    const lineEndpoints = getLineEndpoints(el);
+    if (!lineEndpoints) return;
+    const { x1, y1, x2, y2 } = lineEndpoints;
+    const stroke = el.stroke || '#0f3f66';
+    const strokeWidth = Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2;
+
+    const line = document.createElementNS(SVG_NS, 'line');
+    line.setAttribute('x1', x1);
+    line.setAttribute('y1', y1);
+    line.setAttribute('x2', x2);
+    line.setAttribute('y2', y2);
+    line.setAttribute('fill', 'none');
+    line.setAttribute('stroke', stroke);
+    line.setAttribute('stroke-width', strokeWidth);
+    line.setAttribute('stroke-linecap', 'round');
+    g.appendChild(line);
+
+    if (el.type === 'arrow') {
+      const arrowPoints = buildArrowHeadPoints(x1, y1, x2, y2, Number.isFinite(el.arrowHeadLength) ? el.arrowHeadLength : 18);
+      if (arrowPoints) {
+        const arrowHead = document.createElementNS(SVG_NS, 'polygon');
+        arrowHead.setAttribute('points', arrowPoints);
+        arrowHead.setAttribute('fill', el.fill || stroke);
+        arrowHead.setAttribute('stroke', stroke);
+        arrowHead.setAttribute('stroke-width', strokeWidth);
+        arrowHead.setAttribute('stroke-linejoin', 'miter');
+        g.appendChild(arrowHead);
+      }
+    }
+  }
+
+  if (el.type === 'diamond') {
+    const x = Number.isFinite(el.x) ? el.x : 60;
+    const y = Number.isFinite(el.y) ? el.y : 60;
+    const width = Number.isFinite(el.width) ? el.width : 160;
+    const height = Number.isFinite(el.height) ? el.height : 160;
+    const cx = x + width / 2;
+    const cy = y + height / 2;
+    const points = `${cx},${y} ${x + width},${cy} ${cx},${y + height} ${x},${cy}`;
+    const diamond = document.createElementNS(SVG_NS, 'polygon');
+    diamond.setAttribute('points', points);
+    diamond.setAttribute('fill', el.fill || '#4ea5ff');
+    diamond.setAttribute('stroke', el.stroke || '#003f7a');
+    diamond.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
+    g.appendChild(diamond);
+  }
+
   g.addEventListener('pointerdown', (event) => onElementPointerDown(event, el.id));
   g.addEventListener('dblclick', (event) => {
     event.stopPropagation();
@@ -2186,6 +2260,38 @@ function renderSelection(el, showHandles = true) {
     }
     handle.addEventListener('pointerdown', (event) => onHandlePointerDown(event, el.id, key));
     dom.canvas.appendChild(handle);
+  }
+
+  if (el.type === 'line' || el.type === 'arrow') {
+    const lineEndpoints = getLineEndpoints(el);
+    const handleOffset = 12;
+    const lineDx = lineEndpoints ? lineEndpoints.x2 - lineEndpoints.x1 : 0;
+    const lineDy = lineEndpoints ? lineEndpoints.y2 - lineEndpoints.y1 : 0;
+    const lineLength = Math.hypot(lineDx, lineDy);
+    let rotateX = bounds.x + bounds.width / 2 - half;
+    let rotateY = bounds.y - 26 - half;
+
+    if (lineLength > 0 && Number.isFinite(lineDx) && Number.isFinite(lineDy)) {
+      const nx = lineDx / lineLength;
+      const ny = lineDy / lineLength;
+      const anchorX = lineEndpoints.x2 + nx * handleOffset;
+      const anchorY = lineEndpoints.y2 + ny * handleOffset;
+      rotateX = anchorX - half;
+      rotateY = anchorY - half;
+    }
+
+    const rotateHandle = document.createElementNS(SVG_NS, 'rect');
+    rotateHandle.classList.add('selection-handle');
+    rotateHandle.classList.add('selection-handle-rotate');
+    rotateHandle.dataset.elementId = el.id;
+    rotateHandle.dataset.handle = 'rotate';
+    rotateHandle.setAttribute('x', rotateX);
+    rotateHandle.setAttribute('y', rotateY);
+    rotateHandle.setAttribute('width', size);
+    rotateHandle.setAttribute('height', size);
+    rotateHandle.style.cursor = 'alias';
+    rotateHandle.addEventListener('pointerdown', (event) => onHandlePointerDown(event, el.id, 'rotate'));
+    dom.canvas.appendChild(rotateHandle);
   }
 }
 
@@ -2275,12 +2381,82 @@ function getElementBounds(el) {
     };
   }
 
+  if (el.type === 'line' || el.type === 'arrow') {
+    const bounds = getRotatedLineShapeBounds(el);
+    if (bounds) return bounds;
+  }
+
   return {
     x: el.x,
     y: el.y,
     width: el.width,
     height: el.height,
   };
+}
+
+function getLineEndpoints(el) {
+  const x1 = Number.isFinite(el.x) ? el.x : 60;
+  const y1 = Number.isFinite(el.y) ? el.y : 60;
+  const width = Number.isFinite(el.width) ? el.width : 220;
+  const height = Number.isFinite(el.height) ? el.height : 120;
+  const length = Math.hypot(width, height);
+  if (!Number.isFinite(length) || length <= 0) {
+    return {
+      x1,
+      y1,
+      x2: x1,
+      y2: y1,
+    };
+  }
+
+  const rotation = normalizeShapeRotation(el.rotation || 0);
+  const baseAngle = Math.atan2(height, width);
+  const rotationRad = (rotation * Math.PI) / 180;
+  const angle = baseAngle + rotationRad;
+
+  return {
+    x1,
+    y1,
+    x2: x1 + Math.cos(angle) * length,
+    y2: y1 + Math.sin(angle) * length,
+  };
+}
+
+function getRotatedLineShapeBounds(el) {
+  const endpoints = getLineEndpoints(el);
+  if (!endpoints) return null;
+  const minX = Math.min(endpoints.x1, endpoints.x2);
+  const minY = Math.min(endpoints.y1, endpoints.y2);
+  const maxX = Math.max(endpoints.x1, endpoints.x2);
+  const maxY = Math.max(endpoints.y1, endpoints.y2);
+  return {
+    x: minX,
+    y: minY,
+    width: Math.max(1, maxX - minX),
+    height: Math.max(1, maxY - minY),
+  };
+}
+
+function buildArrowHeadPoints(x1, y1, x2, y2, headLength = 18) {
+  const vx = x2 - x1;
+  const vy = y2 - y1;
+  const length = Math.hypot(vx, vy);
+  if (!Number.isFinite(length) || length <= 0) return null;
+
+  const nx = vx / length;
+  const ny = vy / length;
+  const nextLength = Math.min(Number.isFinite(headLength) ? headLength : 18, length * 0.6);
+  const baseX = x2 - nx * nextLength;
+  const baseY = y2 - ny * nextLength;
+  const halfWidth = nextLength * 0.5;
+  const px = -ny;
+  const py = nx;
+
+  return [
+    `${x2},${y2}`,
+    `${baseX + px * halfWidth},${baseY + py * halfWidth}`,
+    `${baseX - px * halfWidth},${baseY - py * halfWidth}`,
+  ].join(' ');
 }
 
 function renderMarqueeSelection(pointerState) {
@@ -2523,6 +2699,25 @@ function onHandlePointerDown(event, elementId, handle) {
 
   const bounds = getElementBounds(element);
   setSelectedElementIds([elementId]);
+
+  if (handle === 'rotate' && (element.type === 'line' || element.type === 'arrow')) {
+    state.pointerState = {
+      mode: 'rotate',
+      elementId,
+      pointerId: event.pointerId,
+      start: getPointerPosition(event),
+      pivotX: Number.isFinite(element.x) ? element.x : 0,
+      pivotY: Number.isFinite(element.y) ? element.y : 0,
+      x: bounds.x,
+      y: bounds.y,
+      width: bounds.width,
+      height: bounds.height,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    render();
+    return;
+  }
+
   state.pointerState = {
     mode: 'resize',
     elementId,
@@ -2586,7 +2781,7 @@ function onPointerMove(event) {
     return;
   }
 
-  const dx = p.x - state.pointerState.start.x;
+    const dx = p.x - state.pointerState.start.x;
   const dy = p.y - state.pointerState.start.y;
 
   if (state.pointerState.mode === 'move') {
@@ -2615,6 +2810,19 @@ function onPointerMove(event) {
       target.y = y + nextDy;
     });
 
+    render();
+    return;
+  }
+
+  if (state.pointerState.mode === 'rotate') {
+    const pivotX = Number.isFinite(state.pointerState.pivotX)
+      ? state.pointerState.pivotX
+      : Number.isFinite(element.x) ? element.x : 0;
+    const pivotY = Number.isFinite(state.pointerState.pivotY)
+      ? state.pointerState.pivotY
+      : Number.isFinite(element.y) ? element.y : 0;
+    const nextAngle = normalizeShapeRotation((Math.atan2(p.y - pivotY, p.x - pivotX) * 180) / Math.PI);
+    element.rotation = nextAngle;
     render();
     return;
   }
@@ -2665,7 +2873,7 @@ function onPointerMove(event) {
 
 function onPointerUp(event) {
   if (!state.pointerState) return;
-  const shouldRecord = ['move', 'resize'].includes(state.pointerState.mode);
+  const shouldRecord = ['move', 'resize', 'rotate'].includes(state.pointerState.mode);
 
   if (state.pointerState.mode === 'edit-intent') {
     const { elementId } = state.pointerState;
@@ -2774,6 +2982,64 @@ function addElement(type) {
       height: 160,
       fill: '#64d2ff',
       stroke: '#0c4a79',
+    });
+  }
+
+  if (type === 'roundedRect') {
+    slide.elements.push({
+      id,
+      type,
+      x: cx,
+      y: cy,
+      width: 260,
+      height: 160,
+      rx: 20,
+      ry: 20,
+      fill: '#4ea5ff',
+      stroke: '#0b2f5a',
+    });
+  }
+
+  if (type === 'line') {
+    slide.elements.push({
+      id,
+      type,
+      x: cx,
+      y: cy,
+      width: 220,
+      height: 0,
+      stroke: '#0f3f66',
+      strokeWidth: 2,
+      rotation: 0,
+    });
+  }
+
+  if (type === 'arrow') {
+    slide.elements.push({
+      id,
+      type,
+      x: cx,
+      y: cy,
+      width: 220,
+      height: 0,
+      stroke: '#0f3f66',
+      strokeWidth: 2,
+      fill: '#0f3f66',
+      arrowHeadLength: 24,
+      rotation: 0,
+    });
+  }
+
+  if (type === 'diamond') {
+    slide.elements.push({
+      id,
+      type,
+      x: cx,
+      y: cy,
+      width: 160,
+      height: 160,
+      fill: '#4ea5ff',
+      stroke: '#0b2f5a',
     });
   }
 
@@ -3038,8 +3304,18 @@ function renderProperties() {
     dom.propTextBulletRow,
     dom.propTextRow,
   ];
+  const shapePropertyControls = [
+    dom.propShapeRotationRow,
+  ];
   const setTextPropertyVisibility = (visible) => {
     textPropertyControls.forEach((node) => {
+      if (node) {
+        node.style.display = visible ? '' : 'none';
+      }
+    });
+  };
+  const setShapePropertyVisibility = (visible) => {
+    shapePropertyControls.forEach((node) => {
       if (node) {
         node.style.display = visible ? '' : 'none';
       }
@@ -3049,14 +3325,23 @@ function renderProperties() {
   const hasSelection = selectedElements.length > 0;
   const canAlign = selectedElements.length >= 2;
   const isTextSelection = hasSelection && selectedElements.length === 1 && item?.type === 'text';
+  const isLineSelection = hasSelection && selectedElements.length === 1 && (item?.type === 'line' || item?.type === 'arrow');
   const supportsFill = hasSelection && selectedElements.every((selected) => selected.type !== 'svg-fragment');
   const typeLabel = item ? (
     item.type === 'text'
       ? 'テキスト'
       : item.type === 'rect'
         ? '四角形'
+        : item.type === 'roundedRect'
+          ? '角丸矩形'
         : item.type === 'circle'
           ? '円'
+          : item.type === 'line'
+            ? '線'
+            : item.type === 'arrow'
+              ? '矢印'
+              : item.type === 'diamond'
+                ? '菱形'
           : item.type === 'svg-fragment'
           ? 'SVG(高精度取り込み)'
           : '画像'
@@ -3065,10 +3350,12 @@ function renderProperties() {
   dom.selectedLabel.value = selectedElements.length > 1 ? `${selectedElements.length}個選択` : typeLabel;
 
   setTextPropertyVisibility(isTextSelection);
+  setShapePropertyVisibility(isLineSelection);
   dom.propFillLabel.textContent = isTextSelection ? '文字色' : '塗りつぶし';
   dom.propStrokeLabel.textContent = '枠色';
   dom.propFill.disabled = !supportsFill || !hasSelection;
   dom.propStroke.disabled = !supportsFill || !hasSelection;
+  dom.propShapeRotation.disabled = !isLineSelection;
   dom.propFontSize.disabled = !isTextSelection;
   dom.propTextAlign.disabled = !isTextSelection;
   dom.propFontFamily.disabled = !isTextSelection;
@@ -3099,6 +3386,7 @@ function renderProperties() {
     dom.propStrokeLabel.textContent = '枠色';
     dom.propFill.value = '#000000';
     dom.propStroke.value = '#000000';
+    dom.propShapeRotation.value = '0';
     dom.propFontSize.value = '32';
     dom.propTextAlign.value = 'start';
     dom.propFontFamily.value = DEFAULT_TEXT_FONT_FAMILY;
@@ -3128,6 +3416,11 @@ function renderProperties() {
   dom.propTextLetterSpacing.value = String(normalizeTextLetterSpacing(item.letterSpacing || TEXT_LETTER_SPACING_DEFAULT));
   dom.propTextIndent.value = String(normalizeTextIndent(item.textIndent || TEXT_INDENT_DEFAULT));
   dom.propTextBullet.value = normalizeTextBulletType(item.bulletType || TEXT_BULLET_DEFAULT);
+  if (isLineSelection) {
+    dom.propShapeRotation.value = String(normalizeShapeRotation(item.rotation || 0));
+  } else {
+    dom.propShapeRotation.value = '0';
+  }
   if (editing && editing.id === item.id) {
     dom.propText.value = activeTextEditor?.textarea?.value || '';
     dom.propText.disabled = true;
@@ -3140,6 +3433,7 @@ function applyPropertyFromInputs(event) {
   const selectedElements = getSelectedElementElements();
   if (!selectedElements.length) return;
   const isTextSelection = selectedElements.length === 1 && selectedElements[0].type === 'text';
+  const isLineSelection = selectedElements.length === 1 && (selectedElements[0].type === 'line' || selectedElements[0].type === 'arrow');
   const isStrokeInput = event?.target === dom.propStroke;
 
   for (const item of selectedElements) {
@@ -3149,9 +3443,12 @@ function applyPropertyFromInputs(event) {
       if (item.type === 'text' && isStrokeInput) {
         item.strokeWidth = Math.max(1, Number.isFinite(item.strokeWidth) ? item.strokeWidth : 1);
       }
+      if ((item.type === 'line' || item.type === 'arrow') && dom.propShapeRotation) {
+        item.rotation = normalizeShapeRotation(dom.propShapeRotation.value);
+      }
     }
   }
-  if (!isTextSelection) {
+  if (!isTextSelection && !isLineSelection) {
     recordHistorySnapshot();
     render();
     return;
@@ -3340,7 +3637,11 @@ function setupEvents() {
 
   dom.addText.addEventListener('click', () => addElement('text'));
   dom.addRect.addEventListener('click', () => addElement('rect'));
+  dom.addRoundedRect.addEventListener('click', () => addElement('roundedRect'));
   dom.addCircle.addEventListener('click', () => addElement('circle'));
+  dom.addLine.addEventListener('click', () => addElement('line'));
+  dom.addArrow.addEventListener('click', () => addElement('arrow'));
+  dom.addDiamond.addEventListener('click', () => addElement('diamond'));
   dom.addImage.addEventListener('click', () => addElement('image'));
 
   dom.duplicateElement.addEventListener('click', duplicateElement);
@@ -3404,6 +3705,7 @@ function setupEvents() {
 
   dom.propFill.addEventListener('input', applyPropertyFromInputs);
   dom.propStroke.addEventListener('input', applyPropertyFromInputs);
+  dom.propShapeRotation?.addEventListener('input', applyPropertyFromInputs);
   dom.propFontSize.addEventListener('input', applyPropertyFromInputs);
   dom.propTextAlign?.addEventListener('change', applyPropertyFromInputs);
   dom.propFontFamily?.addEventListener('change', applyPropertyFromInputs);

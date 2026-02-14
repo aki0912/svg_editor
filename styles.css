@@ -642,6 +642,15 @@ input[type="color"]::-webkit-color-swatch {
   fill: var(--accent-primary);
 }
 
+.selection-handle-rotate {
+  fill: #f59e0b;
+  stroke: #ea580c;
+}
+
+.selection-handle-rotate:hover {
+  fill: #f97316;
+}
+
 .marquee-selection {
   fill: rgba(99, 102, 241, 0.08);
   stroke: var(--accent-primary);

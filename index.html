@@ -26,7 +26,11 @@
           <div class="toolbar-group">
             <button id="add-text">テキスト</button>
             <button id="add-rect">四角</button>
+            <button id="add-rounded-rect">角丸矩形</button>
             <button id="add-circle">丸</button>
+            <button id="add-line">線</button>
+            <button id="add-arrow">矢印</button>
+            <button id="add-diamond">菱形</button>
             <button id="add-image">画像</button>
           </div>
         </section>
@@ -44,6 +48,10 @@
           <label>
             <span id="prop-stroke-label">枠色</span>
             <input id="prop-stroke" type="color" disabled />
+          </label>
+          <label id="prop-shape-rotation-row">
+            向き（度）
+            <input id="prop-shape-rotation" type="number" min="0" max="359" step="1" value="0" disabled />
           </label>
           <label id="prop-font-size-row">
             フォントサイズ
