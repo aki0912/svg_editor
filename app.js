@@ -11,6 +11,15 @@ const state = {
   pointerState: null,
 };
 
+const historyFactory = typeof window !== 'undefined'
+  && window.EditorHistory
+  && typeof window.EditorHistory.createHistoryManager === 'function'
+    ? window.EditorHistory.createHistoryManager
+    : null;
+const history = historyFactory
+  ? historyFactory(state, { maxEntries: 200 })
+  : createFallbackHistoryManager(state, { maxEntries: 200 });
+
 let activeTextEditor = null;
 let textMeasureContext = null;
 
@@ -50,6 +59,76 @@ function createId() {
   return (crypto.randomUUID && crypto.randomUUID()) || `id-${Date.now()}-${Math.floor(Math.random() * 99999)}`;
 }
 
+function createFallbackHistoryManager(initialState, options = {}) {
+  const maxEntries = Math.max(1, Number.parseInt(options.maxEntries, 10) || 200);
+  const records = [];
+  let index = -1;
+
+  const clone = (value) => {
+    if (typeof structuredClone === 'function') return structuredClone(value);
+    return JSON.parse(JSON.stringify(value));
+  };
+
+  function record(state) {
+    const snapshot = clone(state);
+    if (index < records.length - 1) {
+      records.splice(index + 1);
+    }
+
+    records.push(snapshot);
+    if (records.length > maxEntries) {
+      records.shift();
+      index = Math.max(0, index - 1);
+    }
+
+    index = records.length - 1;
+    return snapshot;
+  }
+
+  function replace(state) {
+    records.length = 0;
+    index = -1;
+    record(state);
+  }
+
+  function canUndo() {
+    return index > 0;
+  }
+
+  function canRedo() {
+    return index < records.length - 1;
+  }
+
+  function undo() {
+    if (!canUndo()) return null;
+    index -= 1;
+    return clone(records[index]);
+  }
+
+  function redo() {
+    if (!canRedo()) return null;
+    index += 1;
+    return clone(records[index]);
+  }
+
+  function current() {
+    if (index < 0) return null;
+    return clone(records[index]);
+  }
+
+  replace(initialState);
+
+  return {
+    record,
+    replace,
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+    current,
+  };
+}
+
 function createEmptySlide(title = '新規スライド') {
   return {
     id: createId(),
@@ -63,6 +142,58 @@ function createEmptySlide(title = '新規スライド') {
 
 function currentSlide() {
   return state.slides[state.currentSlideIndex] || state.slides[0];
+}
+
+function recordHistorySnapshot() {
+  if (!history || typeof history.record !== 'function') return;
+  history.record(state);
+}
+
+function restoreHistorySnapshot(snapshot) {
+  if (!snapshot) return;
+
+  const slides = Array.isArray(snapshot.slides) && snapshot.slides.length > 0
+    ? snapshot.slides
+    : [createEmptySlide('スライド 1')];
+
+  const safeIndex = Number.isInteger(snapshot.currentSlideIndex)
+    ? snapshot.currentSlideIndex
+    : 0;
+  const currentIndex = Math.min(Math.max(0, safeIndex), slides.length - 1);
+  const current = slides[currentIndex];
+
+  const selectedValid = !!(
+    current
+    && Array.isArray(current.elements)
+    && snapshot.selectedElementId
+    && current.elements.some((item) => item.id === snapshot.selectedElementId)
+  );
+
+  if (activeTextEditor) {
+    closeActiveTextEditor({ commit: false, rerender: false });
+  }
+
+  state.slides = slides;
+  state.currentSlideIndex = currentIndex;
+  state.selectedElementId = selectedValid ? snapshot.selectedElementId : null;
+  state.pointerState = null;
+
+  render();
+  saveLocal();
+}
+
+function undoHistory() {
+  if (!history || typeof history.undo !== 'function') return;
+  const snapshot = history.undo();
+  if (!snapshot) return;
+  restoreHistorySnapshot(snapshot);
+}
+
+function redoHistory() {
+  if (!history || typeof history.redo !== 'function') return;
+  const snapshot = history.redo();
+  if (!snapshot) return;
+  restoreHistorySnapshot(snapshot);
 }
 
 function parseStyleMap(node) {
@@ -1360,6 +1491,7 @@ function closeActiveTextEditor({ commit = true, rerender = true } = {}) {
 
   const editor = activeTextEditor;
   activeTextEditor = null;
+  let textCommitted = false;
 
   const slide = currentSlide();
   const target = slide.elements.find((item) => item.id === editor.elementId);
@@ -1372,7 +1504,13 @@ function closeActiveTextEditor({ commit = true, rerender = true } = {}) {
   }
 
   if (commit && target && target.type === 'text' && editor.textarea) {
-    target.text = editor.textarea.value;
+    const nextText = editor.textarea.value;
+    textCommitted = target.text !== nextText;
+    target.text = nextText;
+  }
+
+  if (textCommitted) {
+    recordHistorySnapshot();
   }
 
   if (rerender) render();
@@ -1641,6 +1779,7 @@ function onPointerMove(event) {
 
 function onPointerUp(event) {
   if (!state.pointerState) return;
+  const shouldRecord = ['move', 'resize'].includes(state.pointerState.mode);
 
   if (state.pointerState.mode === 'edit-intent') {
     const { elementId } = state.pointerState;
@@ -1650,6 +1789,9 @@ function onPointerUp(event) {
   }
 
   state.pointerState = null;
+  if (shouldRecord) {
+    recordHistorySnapshot();
+  }
   saveLocal();
 }
 
@@ -1714,6 +1856,7 @@ function addElement(type) {
   }
 
   state.selectedElementId = id;
+  recordHistorySnapshot();
   render();
 }
 
@@ -1721,6 +1864,7 @@ function newSlide() {
   state.slides.push(createEmptySlide(`スライド ${state.slides.length + 1}`));
   state.currentSlideIndex = state.slides.length - 1;
   state.selectedElementId = null;
+  recordHistorySnapshot();
   render();
 }
 
@@ -1735,6 +1879,7 @@ function duplicateSlide() {
   }));
   state.slides.splice(state.currentSlideIndex + 1, 0, copy);
   state.currentSlideIndex += 1;
+  recordHistorySnapshot();
   render();
 }
 
@@ -1744,6 +1889,7 @@ function removeCurrentSlide() {
   state.slides = state.slides.filter((_, index) => index !== state.currentSlideIndex);
   state.currentSlideIndex = Math.min(isCurrentSelected, state.slides.length - 1);
   state.selectedElementId = null;
+  recordHistorySnapshot();
   render();
 }
 
@@ -1758,6 +1904,7 @@ function duplicateElement() {
   copy.y += 20;
   slide.elements.push(copy);
   state.selectedElementId = copy.id;
+  recordHistorySnapshot();
   render();
 }
 
@@ -1766,6 +1913,7 @@ function deleteElement() {
   const slide = currentSlide();
   slide.elements = slide.elements.filter((item) => item.id !== state.selectedElementId);
   state.selectedElementId = null;
+  recordHistorySnapshot();
   render();
 }
 
@@ -1780,6 +1928,7 @@ function setZOrder(direction) {
 
   const [item] = slide.elements.splice(index, 1);
   slide.elements.splice(target, 0, item);
+  recordHistorySnapshot();
   render();
 }
 
@@ -1852,6 +2001,7 @@ function applyPropertyFromInputs(event) {
   }
   item.fontSize = Number(dom.propFontSize.value || 32);
   if (item.type === 'text') item.text = dom.propText.value;
+  recordHistorySnapshot();
   render();
 }
 
@@ -1892,6 +2042,7 @@ function importJSONFromInput(file) {
       state.slides = loaded.slides;
       state.currentSlideIndex = 0;
       state.selectedElementId = null;
+      recordHistorySnapshot();
       render();
     } catch {
       alert('JSONの読み込みに失敗しました');
@@ -1940,6 +2091,7 @@ function importSVGFromInput(file) {
     if (shouldUseRaw) {
       addSVGFragmentElement(slide, source, text);
       state.selectedElementId = slide.elements.at(-1).id;
+      recordHistorySnapshot();
       render();
       return;
     }
@@ -1950,6 +2102,7 @@ function importSVGFromInput(file) {
       slide.elements.push(element);
       state.selectedElementId = element.id;
     }
+    recordHistorySnapshot();
     render();
   };
 
@@ -1995,6 +2148,7 @@ function resetState() {
   state.currentSlideIndex = 0;
   state.selectedElementId = null;
   state.pointerState = null;
+  recordHistorySnapshot();
   render();
 }
 
@@ -2070,16 +2224,32 @@ function setupEvents() {
   window.addEventListener('pointermove', onPointerMove);
 
   window.addEventListener('keydown', (event) => {
+    const targetTag = document.activeElement?.tagName?.toLowerCase();
+    const isTextControl = targetTag === 'input' || targetTag === 'textarea';
+    const key = event.key?.toLowerCase();
+    const isUndoShortcut = (event.metaKey || event.ctrlKey) && !event.altKey && !isTextControl && key === 'z';
+    const isRedoShortcut = (event.metaKey || event.ctrlKey) && !isTextControl && (key === 'y' || (event.shiftKey && key === 'z'));
+
+    if (isUndoShortcut) {
+      event.preventDefault();
+      undoHistory();
+      return;
+    }
+
+    if (isRedoShortcut) {
+      event.preventDefault();
+      redoHistory();
+      return;
+    }
+
     if (activeTextEditor && event.key === 'Enter') {
-      const targetTag = document.activeElement?.tagName?.toLowerCase();
-      if (targetTag === 'input' || targetTag === 'textarea') return;
+      if (isTextControl) return;
       closeActiveTextEditor({ commit: true, rerender: false });
       return;
     }
 
     if (event.key === 'Delete' || event.key === 'Backspace') {
-      const targetTag = document.activeElement?.tagName?.toLowerCase();
-      if (targetTag === 'input' || targetTag === 'textarea') return;
+      if (isTextControl) return;
       if (activeTextEditor) {
         closeActiveTextEditor({ commit: true, rerender: false });
         return;
@@ -2092,6 +2262,11 @@ function setupEvents() {
 
 function bootstrap() {
   loadLocal();
+  if (history && typeof history.replace === 'function') {
+    history.replace(state);
+  } else {
+    recordHistorySnapshot();
+  }
   setupEvents();
   render();
 }

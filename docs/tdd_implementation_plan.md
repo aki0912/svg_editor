@@ -1,5 +1,24 @@
 # SVG Slide Editor TDD移行計画（起動方式維持版）
 
+## 実装進捗（2026-02-14）
+- フェーズ0: テスト基盤の導入ファイルを追加
+  - `package.json`（`npm test`/`vitest`）
+- フェーズ1: 履歴基盤モジュールを追加
+  - `src/commands/history.js`
+- フェーズ2: Undo/Redoの初期テストを追加
+  - `tests/history.test.js`
+- フェーズ3: P0-1（Undo/Redo）
+  - `app.js` に履歴の参照/適用/復元を追加
+  - キーボードショートカット（`Ctrl/Cmd+Z`, `Ctrl/Cmd+Y`, `Ctrl/Cmd+Shift+Z`）を追加
+  - 主要操作（追加/複製/削除/移動/リサイズ/プロパティ/インポート/リセット）で履歴記録
+  - `index.html` で履歴スクリプトを読み込み、起動方式は既存維持
+
+### 次アクション
+- P0-2 スナップ/ガイドのTDD実装（`src/commands/alignSnap.js` / `tests/alignSnap.test.js`）
+- P0-3 テキスト編集拡張のTDD化
+- P0-4 copy/paste/複数選択のテスト化
+- P0-5 キーボードショートカット強化と実機検証（リスト移動/削除/重ね順）
+
 ## 目的
 - `index.html` をダブルクリックでブラウザ起動する現行運用を維持しつつ、
   変更の安全性を上げるためにTDDを導入する。
