@@ -642,6 +642,15 @@ input[type="color"]::-webkit-color-swatch {
   fill: var(--accent-primary);
 }
 
+.marquee-selection {
+  fill: rgba(99, 102, 241, 0.08);
+  stroke: var(--accent-primary);
+  stroke-width: 2;
+  stroke-dasharray: 8 4;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+}
+
 @media (max-width: 1024px) {
   .app-shell {
     grid-template-columns: 1fr;

@@ -87,6 +87,7 @@ const state = {
   slides: [createEmptySlide('スライド 1')],
   currentSlideIndex: 0,
   selectedElementId: null,
+  selectedElementIds: [],
   pointerState: null,
 };
 
@@ -118,7 +119,7 @@ let activeTextEditor = null;
 let textMeasureContext = null;
 let activeSnapGuide = null;
 let snapGuideFadeTimer = null;
-let clipboardElement = null;
+let clipboardElements = [];
 let clipboardPasteOffset = 20;
 
 const dom = {
@@ -355,6 +356,63 @@ function recordHistorySnapshot() {
   history.record(state);
 }
 
+function getSelectedElementIds(ids) {
+  const source = Array.isArray(ids) ? ids : state.selectedElementIds;
+  const unique = [...new Set(Array.isArray(source) ? source : [])];
+  return unique
+    .map(normalizeSelectionId)
+    .filter((id) => id !== null && id !== '');
+}
+
+function setSelectedElementIds(ids) {
+  const unique = getSelectedElementIds(ids || []);
+  const slide = currentSlide();
+  const valid = Array.isArray(slide?.elements)
+    ? unique.filter((id) => slide.elements.some((item) => normalizeSelectionId(item.id) === id))
+    : [];
+  state.selectedElementIds = valid;
+  state.selectedElementId = valid[0] || null;
+}
+
+function normalizeSelectionId(id) {
+  return id === null || id === undefined ? null : String(id);
+}
+
+function getPrimarySelectedElementId() {
+  return state.selectedElementIds && state.selectedElementIds.length > 0 ? state.selectedElementIds[0] : state.selectedElementId;
+}
+
+function getPrimarySelectedElement() {
+  const slide = currentSlide();
+  const id = getPrimarySelectedElementId();
+  if (!id) return null;
+  return slide.elements.find((item) => normalizeSelectionId(item.id) === normalizeSelectionId(id)) || null;
+}
+
+function getSelectedElementElements() {
+  const slide = currentSlide();
+  const ids = new Set(getSelectedElementIds().map(normalizeSelectionId));
+  return slide.elements.filter((item) => ids.has(normalizeSelectionId(item.id)));
+}
+
+function hasSingleSelection() {
+  return getSelectedElementIds().length === 1;
+}
+
+function isSingleSelectionText() {
+  if (!hasSingleSelection()) return false;
+  const selected = getPrimarySelectedElement();
+  return selected?.type === 'text';
+}
+
+function hasSelection() {
+  return getSelectedElementIds().length > 0;
+}
+
+function isElementIdSelected(elementId) {
+  return getSelectedElementIds().map(normalizeSelectionId).includes(normalizeSelectionId(elementId));
+}
+
 function restoreHistorySnapshot(snapshot) {
   if (!snapshot) return;
 
@@ -368,11 +426,18 @@ function restoreHistorySnapshot(snapshot) {
   const currentIndex = Math.min(Math.max(0, safeIndex), slides.length - 1);
   const current = slides[currentIndex];
 
+  const historySelectedIds = Array.isArray(snapshot.selectedElementIds)
+    ? snapshot.selectedElementIds
+    : snapshot.selectedElementId
+      ? [snapshot.selectedElementId]
+      : [];
+  const selectedElementIds = historySelectedIds.filter((id) => current && Array.isArray(current.elements)
+    && current.elements.some((item) => normalizeSelectionId(item.id) === normalizeSelectionId(id)));
+
   const selectedValid = !!(
     current
     && Array.isArray(current.elements)
-    && snapshot.selectedElementId
-    && current.elements.some((item) => item.id === snapshot.selectedElementId)
+    && selectedElementIds.length > 0
   );
 
   if (activeTextEditor) {
@@ -382,7 +447,7 @@ function restoreHistorySnapshot(snapshot) {
   state.slides = slides;
   normalizeTextElementsInSlides(state.slides);
   state.currentSlideIndex = currentIndex;
-  state.selectedElementId = selectedValid ? snapshot.selectedElementId : null;
+  setSelectedElementIds(selectedValid ? selectedElementIds : []);
   state.pointerState = null;
 
   render();
@@ -446,17 +511,18 @@ function getSnapThreshold() {
   return SNAP_THRESHOLD_DEFAULT;
 }
 
-function applyMoveSnap(element, x, y) {
+function applyMoveSnap(element, x, y, activeElementIds = [element?.id]) {
   if (!snapEngine) return { x, y };
 
   const slide = currentSlide();
+  const excludedIds = new Set(Array.isArray(activeElementIds) ? activeElementIds : [activeElementIds]);
   const bounds = getElementBounds(element);
   const result = snapEngine.snapMove({
     x,
     y,
     width: Number.isFinite(bounds.width) ? bounds.width : Number.isFinite(element.width) ? element.width : 0,
     height: Number.isFinite(bounds.height) ? bounds.height : Number.isFinite(element.height) ? element.height : 0,
-    elements: slide.elements,
+    elements: slide.elements.filter((item) => !excludedIds.has(item.id)),
     activeElementId: element.id,
     slideWidth: slide.width,
     slideHeight: slide.height,
@@ -1831,7 +1897,7 @@ function renderSlideList() {
     btn.textContent = `${index + 1}. ${slide.title}`;
     btn.addEventListener('click', () => {
       state.currentSlideIndex = index;
-      state.selectedElementId = null;
+      setSelectedElementIds([]);
       render();
     });
     li.appendChild(btn);
@@ -1851,21 +1917,22 @@ function renderCanvas() {
   bg.setAttribute('width', slide.width);
   bg.setAttribute('height', slide.height);
   bg.setAttribute('fill', slide.background);
-  bg.addEventListener('pointerdown', () => {
-    state.selectedElementId = null;
-    render();
-  });
+  bg.addEventListener('pointerdown', onCanvasPointerDownForDeselect);
   dom.canvas.appendChild(bg);
 
   slide.elements.forEach((el) => {
     renderElement(el);
   });
 
-  if (state.selectedElementId) {
-    const target = slide.elements.find((el) => el.id === state.selectedElementId);
+  const selectedIds = getSelectedElementIds();
+  selectedIds.forEach((elementId, index) => {
+    const target = slide.elements.find((el) => normalizeSelectionId(el.id) === normalizeSelectionId(elementId));
     if (target) {
-      renderSelection(target);
+      renderSelection(target, index === 0);
     }
+  });
+  if (state.pointerState?.mode === 'marquee' && state.pointerState.width > 0 && state.pointerState.height > 0) {
+    renderMarqueeSelection(state.pointerState);
   }
 
   renderSnapGuides(slide);
@@ -2062,7 +2129,7 @@ function renderElement(el) {
   dom.canvas.appendChild(g);
 }
 
-function renderSelection(el) {
+function renderSelection(el, showHandles = true) {
   const bounds = getElementBounds(el);
   const selectBox = document.createElementNS(SVG_NS, 'rect');
   selectBox.classList.add('selection-box');
@@ -2074,6 +2141,8 @@ function renderSelection(el) {
 
   const size = 8;
   const half = size / 2;
+  if (!showHandles) return;
+
   const positions = [
     ['nw', bounds.x - half, bounds.y - half],
     ['n', bounds.x + bounds.width / 2 - half, bounds.y - half],
@@ -2128,18 +2197,49 @@ function isSelectionProtectedTarget(target) {
 
 function onCanvasPointerDownForDeselect(event) {
   if (!event) return;
+  if (event.button !== undefined && event.button !== 0) return;
 
   const target = event.target;
-  if (isCanvasObjectInteractiveTarget(target) || isSelectionProtectedTarget(target)) return;
-
-  if (!state.selectedElementId && !activeTextEditor) return;
-
+  if (!target || !(target instanceof Element) || !dom.canvas) return;
+  if (isSelectionProtectedTarget(target)) return;
+  if (!dom.canvas.contains(target)) {
+    const hadSelection = hasSelection();
+    const hadMarqueeState = state.pointerState?.mode === 'marquee';
+    if (hadSelection) {
+      setSelectedElementIds([]);
+    }
+    if (hadMarqueeState) {
+      state.pointerState = null;
+    }
+    if (activeTextEditor) {
+      closeActiveTextEditor({ commit: true, rerender: false });
+      if (state.pointerState) state.pointerState = null;
+    }
+    if (hadSelection || hadMarqueeState) {
+      queueMicrotask(() => {
+        render();
+      });
+    }
+    return;
+  }
+  if (isCanvasObjectInteractiveTarget(target)) return;
+  
   if (activeTextEditor) {
     closeActiveTextEditor({ commit: true, rerender: false });
     if (state.pointerState) state.pointerState = null;
   }
 
-  state.selectedElementId = null;
+  setSelectedElementIds([]);
+  const start = getPointerPosition(event);
+  state.pointerState = {
+    mode: 'marquee',
+    pointerId: event.pointerId,
+    start,
+    x: start.x,
+    y: start.y,
+    width: 0,
+    height: 0,
+  };
   render();
 }
 
@@ -2171,6 +2271,22 @@ function getElementBounds(el) {
     width: el.width,
     height: el.height,
   };
+}
+
+function renderMarqueeSelection(pointerState) {
+  if (!pointerState || pointerState.mode !== 'marquee') return;
+  const x = pointerState.x;
+  const y = pointerState.y;
+  const width = pointerState.width;
+  const height = pointerState.height;
+
+  const marquee = document.createElementNS(SVG_NS, 'rect');
+  marquee.classList.add('marquee-selection');
+  marquee.setAttribute('x', x);
+  marquee.setAttribute('y', y);
+  marquee.setAttribute('width', width);
+  marquee.setAttribute('height', height);
+  dom.canvas.appendChild(marquee);
 }
 
 function closeActiveTextEditor({ commit = true, rerender = true } = {}) {
@@ -2305,7 +2421,7 @@ function openTextEditorForElement(elementId, point = null) {
     textarea,
     initialHeight,
   };
-  state.selectedElementId = elementId;
+  setSelectedElementIds([elementId]);
   renderProperties();
 
   textarea.focus();
@@ -2316,6 +2432,7 @@ function openTextEditorForElement(elementId, point = null) {
 function onElementPointerDown(event, elementId) {
   if (event.button === 2) return;
   event.preventDefault();
+  event.stopPropagation();
   clearSnapGuideState();
 
   if (activeTextEditor) {
@@ -2326,9 +2443,23 @@ function onElementPointerDown(event, elementId) {
   const element = slide.elements.find((item) => item.id === elementId);
   if (!element) return;
 
-  state.selectedElementId = elementId;
+  const isShiftSelecting = event.shiftKey;
+  const selectedIds = getSelectedElementIds();
+  const currentlySelected = selectedIds.some((id) => normalizeSelectionId(id) === normalizeSelectionId(elementId));
+  const nextSelectedIds = isShiftSelecting
+    ? (currentlySelected
+      ? selectedIds.filter((id) => normalizeSelectionId(id) !== normalizeSelectionId(elementId))
+      : [...selectedIds, elementId])
+    : (currentlySelected
+      ? selectedIds
+      : [elementId]);
+  setSelectedElementIds(nextSelectedIds);
+  render();
 
-  if (element.type === 'text') {
+  if (isShiftSelecting) return;
+
+  const canEditText = isSingleSelectionText() && normalizeSelectionId(state.selectedElementId) === normalizeSelectionId(elementId);
+  if (element.type === 'text' && canEditText && !isShiftSelecting) {
     const start = getPointerPosition(event);
     state.pointerState = {
       mode: 'edit-intent',
@@ -2343,13 +2474,23 @@ function onElementPointerDown(event, elementId) {
     return;
   }
 
+  const selectedElements = getSelectedElementElements();
+  const moveTargets = selectedElements
+    .map((item) => ({
+      id: item.id,
+      x: Number(item.x) || 0,
+      y: Number(item.y) || 0,
+    }));
+
   state.pointerState = {
     mode: 'move',
     elementId,
     pointerId: event.pointerId,
     start: getPointerPosition(event),
-    x: element.x,
-    y: element.y,
+    activeIds: moveTargets.map((item) => item.id),
+    x: Number(element.x) || 0,
+    y: Number(element.y) || 0,
+    moveTargets,
   };
 
   event.currentTarget.setPointerCapture(event.pointerId);
@@ -2359,6 +2500,8 @@ function onElementPointerDown(event, elementId) {
 function onHandlePointerDown(event, elementId, handle) {
   event.preventDefault();
   event.stopPropagation();
+  if (getSelectedElementIds().length > 1) return;
+  
   clearSnapGuideState();
   if (activeTextEditor) {
     closeActiveTextEditor({ commit: true, rerender: false });
@@ -2369,7 +2512,7 @@ function onHandlePointerDown(event, elementId, handle) {
   if (!element) return;
 
   const bounds = getElementBounds(element);
-  state.selectedElementId = elementId;
+  setSelectedElementIds([elementId]);
   state.pointerState = {
     mode: 'resize',
     elementId,
@@ -2393,11 +2536,27 @@ function onElementDoubleClick(elementId) {
 function onPointerMove(event) {
   if (!state.pointerState) return;
 
+  const p = getPointerPosition(event);
+
+  if (state.pointerState.mode === 'marquee') {
+    const startX = state.pointerState.start?.x;
+    const startY = state.pointerState.start?.y;
+    if (!Number.isFinite(startX) || !Number.isFinite(startY)) return;
+
+    const x = Math.min(startX, p.x);
+    const y = Math.min(startY, p.y);
+    state.pointerState.x = x;
+    state.pointerState.y = y;
+    state.pointerState.width = Math.max(0, p.x - startX < 0 ? startX - p.x : p.x - startX);
+    state.pointerState.height = Math.max(0, p.y - startY < 0 ? startY - p.y : p.y - startY);
+    render();
+    return;
+  }
+
   const slide = currentSlide();
   const element = slide.elements.find((item) => item.id === state.pointerState.elementId);
   if (!element) return;
 
-  const p = getPointerPosition(event);
   if (state.pointerState.mode === 'edit-intent') {
     const movedX = Math.abs(p.x - state.pointerState.start.x);
     const movedY = Math.abs(p.y - state.pointerState.start.y);
@@ -2421,9 +2580,31 @@ function onPointerMove(event) {
   const dy = p.y - state.pointerState.start.y;
 
   if (state.pointerState.mode === 'move') {
-    const snapped = applyMoveSnap(element, state.pointerState.x + dx, state.pointerState.y + dy);
-    element.x = snapped.x;
-    element.y = snapped.y;
+    const moveTargets = Array.isArray(state.pointerState.moveTargets) ? state.pointerState.moveTargets : [];
+    if (!moveTargets.length) {
+      const snapped = applyMoveSnap(element, state.pointerState.x + dx, state.pointerState.y + dy, [state.pointerState.elementId]);
+      element.x = snapped.x;
+      element.y = snapped.y;
+      render();
+      return;
+    }
+
+    const activeIds = state.pointerState.activeIds || moveTargets.map((item) => item.id);
+    const primaryTarget = moveTargets.find((item) => item.id === state.pointerState.elementId) || moveTargets[0];
+    const primaryElement = slide.elements.find((item) => item.id === primaryTarget.id);
+    if (!primaryElement) return;
+
+    const snapped = applyMoveSnap(primaryElement, primaryTarget.x + dx, primaryTarget.y + dy, activeIds);
+    const nextDx = snapped.x - primaryTarget.x;
+    const nextDy = snapped.y - primaryTarget.y;
+
+    moveTargets.forEach(({ id, x, y }) => {
+      const target = slide.elements.find((item) => item.id === id);
+      if (!target) return;
+      target.x = x + nextDx;
+      target.y = y + nextDy;
+    });
+
     render();
     return;
   }
@@ -2480,6 +2661,41 @@ function onPointerUp(event) {
     const { elementId } = state.pointerState;
     state.pointerState = null;
     openTextEditorForElement(elementId, event ? getPointerPosition(event) : null);
+    return;
+  }
+
+  if (state.pointerState.mode === 'marquee') {
+    const selectionRect = {
+      x: state.pointerState.x,
+      y: state.pointerState.y,
+      width: state.pointerState.width,
+      height: state.pointerState.height,
+    };
+
+    if (Number.isFinite(selectionRect.width) && Number.isFinite(selectionRect.height)
+      && (selectionRect.width > 1 || selectionRect.height > 1)
+    ) {
+      const slide = currentSlide();
+      const selected = slide.elements
+        .filter((element) => {
+          const bounds = getElementBounds(element);
+          if (!bounds) return false;
+          const hit = !(
+            bounds.x + bounds.width < selectionRect.x ||
+            bounds.x > selectionRect.x + selectionRect.width ||
+            bounds.y + bounds.height < selectionRect.y ||
+            bounds.y > selectionRect.y + selectionRect.height
+          );
+          return hit;
+        })
+        .map((element) => element.id);
+      setSelectedElementIds(selected);
+    } else {
+      setSelectedElementIds([]);
+    }
+
+    state.pointerState = null;
+    render();
     return;
   }
 
@@ -2565,7 +2781,7 @@ function addElement(type) {
     });
   }
 
-  state.selectedElementId = id;
+  setSelectedElementIds([id]);
   recordHistorySnapshot();
   render();
 }
@@ -2573,7 +2789,7 @@ function addElement(type) {
 function newSlide() {
   state.slides.push(createEmptySlide(`スライド ${state.slides.length + 1}`));
   state.currentSlideIndex = state.slides.length - 1;
-  state.selectedElementId = null;
+  setSelectedElementIds([]);
   recordHistorySnapshot();
   render();
 }
@@ -2598,42 +2814,44 @@ function removeCurrentSlide() {
   const isCurrentSelected = state.currentSlideIndex;
   state.slides = state.slides.filter((_, index) => index !== state.currentSlideIndex);
   state.currentSlideIndex = Math.min(isCurrentSelected, state.slides.length - 1);
-  state.selectedElementId = null;
+  setSelectedElementIds([]);
   recordHistorySnapshot();
   render();
 }
 
 function duplicateElement() {
-  if (!state.selectedElementId) return;
+  const selectedElements = getSelectedElementElements();
+  if (!selectedElements.length) return;
   const slide = currentSlide();
-  const source = slide.elements.find((item) => item.id === state.selectedElementId);
-  if (!source) return;
-  const copy = JSON.parse(JSON.stringify(source));
-  copy.id = createId();
-  copy.x += 20;
-  copy.y += 20;
-  slide.elements.push(copy);
-  state.selectedElementId = copy.id;
+  const copiedIds = [];
+  selectedElements.forEach((source) => {
+    const copy = JSON.parse(JSON.stringify(source));
+    copy.id = createId();
+    copy.x += 20;
+    copy.y += 20;
+    slide.elements.push(copy);
+    copiedIds.push(copy.id);
+  });
+  setSelectedElementIds(copiedIds);
   recordHistorySnapshot();
   render();
 }
 
 function deleteElement() {
-  if (!state.selectedElementId) return;
+  const selectedIds = getSelectedElementIds();
+  if (!selectedIds.length) return;
   const slide = currentSlide();
-  slide.elements = slide.elements.filter((item) => item.id !== state.selectedElementId);
-  state.selectedElementId = null;
+  slide.elements = slide.elements.filter((item) => !selectedIds.includes(item.id));
+  setSelectedElementIds([]);
   recordHistorySnapshot();
   render();
 }
 
 function copySelectedElement() {
-  if (!state.selectedElementId) return false;
-  const slide = currentSlide();
-  const source = slide.elements.find((item) => item.id === state.selectedElementId);
-  if (!source) return false;
+  const selectedElements = getSelectedElementElements();
+  if (!selectedElements.length) return false;
 
-  clipboardElement = JSON.parse(JSON.stringify(source));
+  clipboardElements = JSON.parse(JSON.stringify(selectedElements));
   clipboardPasteOffset = 20;
   return true;
 }
@@ -2646,23 +2864,30 @@ function cutSelectedElement() {
 }
 
 function pasteElementFromClipboard() {
-  if (!clipboardElement) return false;
+  if (!clipboardElements.length) return false;
   const slide = currentSlide();
+  const pastedIds = [];
+  const offset = clipboardPasteOffset;
+  const copies = JSON.parse(JSON.stringify(clipboardElements))
+    .map((copy) => {
+      copy.id = createId();
+      const baseX = Number(copy.x);
+      const baseY = Number(copy.y);
+      copy.x = (Number.isFinite(baseX) ? baseX : 0) + offset;
+      copy.y = (Number.isFinite(baseY) ? baseY : 0) + offset;
+      normalizeTextElementProperties(copy);
+      if (copy.type === 'text') {
+        syncTextElementHeightFromContent(copy);
+      }
+      return copy;
+    });
 
-  const copy = JSON.parse(JSON.stringify(clipboardElement));
-  const baseX = Number(copy.x);
-  const baseY = Number(copy.y);
-  copy.id = createId();
-  copy.x = (Number.isFinite(baseX) ? baseX : 0) + clipboardPasteOffset;
-  copy.y = (Number.isFinite(baseY) ? baseY : 0) + clipboardPasteOffset;
-  clipboardPasteOffset += 20;
-
-  normalizeTextElementProperties(copy);
-  slide.elements.push(copy);
-  state.selectedElementId = copy.id;
-  if (copy.type === 'text') {
-    syncTextElementHeightFromContent(copy);
+  for (const copy of copies) {
+    slide.elements.push(copy);
+    pastedIds.push(copy.id);
   }
+  setSelectedElementIds(pastedIds);
+  clipboardPasteOffset = offset + 20;
   recordHistorySnapshot();
   render();
   return true;
@@ -2677,9 +2902,10 @@ function closeTextEditorForGlobalShortcut() {
 }
 
 function setZOrder(direction) {
-  if (!state.selectedElementId) return;
+  const primaryId = getPrimarySelectedElementId();
+  if (!primaryId) return;
   const slide = currentSlide();
-  const index = slide.elements.findIndex((item) => item.id === state.selectedElementId);
+  const index = slide.elements.findIndex((item) => item.id === primaryId);
   if (index < 0) return;
 
   const target = index + direction;
@@ -2693,7 +2919,8 @@ function setZOrder(direction) {
 
 function renderProperties() {
   const slide = currentSlide();
-  const item = slide.elements.find((item) => item.id === state.selectedElementId);
+  const selectedElements = getSelectedElementElements();
+  const item = selectedElements[0] || null;
   if (item?.type === 'text') {
     normalizeTextElementProperties(item);
     ensureFontFamilySelectOption(item.fontFamily);
@@ -2719,26 +2946,38 @@ function renderProperties() {
     });
   };
 
-  dom.selectedLabel.value = item ? `${item.type.toUpperCase()}` : '';
+  const hasSelection = selectedElements.length > 0;
+  const isTextSelection = hasSelection && selectedElements.length === 1 && item?.type === 'text';
+  const supportsFill = hasSelection && selectedElements.every((selected) => selected.type !== 'svg-fragment');
+  const typeLabel = item ? (
+    item.type === 'text'
+      ? 'テキスト'
+      : item.type === 'rect'
+        ? '四角形'
+        : item.type === 'circle'
+          ? '円'
+          : item.type === 'svg-fragment'
+          ? 'SVG(高精度取り込み)'
+          : '画像'
+  ) : '';
 
-  const hasSelection = Boolean(item);
-  const supportsFill = item && !['svg-fragment'].includes(item.type);
-  const isText = item?.type === 'text';
-  setTextPropertyVisibility(isText);
-  dom.propFillLabel.textContent = isText ? '文字色' : '塗りつぶし';
+  dom.selectedLabel.value = selectedElements.length > 1 ? `${selectedElements.length}個選択` : typeLabel;
+
+  setTextPropertyVisibility(isTextSelection);
+  dom.propFillLabel.textContent = isTextSelection ? '文字色' : '塗りつぶし';
   dom.propStrokeLabel.textContent = '枠色';
   dom.propFill.disabled = !supportsFill || !hasSelection;
   dom.propStroke.disabled = !supportsFill || !hasSelection;
-  dom.propFontSize.disabled = !hasSelection || item?.type !== 'text';
-  dom.propTextAlign.disabled = !hasSelection || item?.type !== 'text';
-  dom.propFontFamily.disabled = !hasSelection || item?.type !== 'text';
-  dom.propFontBold.disabled = !hasSelection || item?.type !== 'text';
-  dom.propFontItalic.disabled = !hasSelection || item?.type !== 'text';
-  dom.propTextLineSpacing.disabled = !hasSelection || item?.type !== 'text';
-  dom.propTextLetterSpacing.disabled = !hasSelection || item?.type !== 'text';
-  dom.propTextIndent.disabled = !hasSelection || item?.type !== 'text';
-  dom.propTextBullet.disabled = !hasSelection || item?.type !== 'text';
-  dom.propText.disabled = !hasSelection || item?.type !== 'text';
+  dom.propFontSize.disabled = !isTextSelection;
+  dom.propTextAlign.disabled = !isTextSelection;
+  dom.propFontFamily.disabled = !isTextSelection;
+  dom.propFontBold.disabled = !isTextSelection;
+  dom.propFontItalic.disabled = !isTextSelection;
+  dom.propTextLineSpacing.disabled = !isTextSelection;
+  dom.propTextLetterSpacing.disabled = !isTextSelection;
+  dom.propTextIndent.disabled = !isTextSelection;
+  dom.propTextBullet.disabled = !isTextSelection;
+  dom.propText.disabled = !isTextSelection;
   dom.bringFront.disabled = !hasSelection;
   dom.sendBack.disabled = !hasSelection;
   dom.duplicateElement.disabled = !hasSelection;
@@ -2762,20 +3001,11 @@ function renderProperties() {
     return;
   }
 
-  if (item.type === 'text') {
-    dom.selectedLabel.value = 'テキスト';
-  } else if (item.type === 'rect') {
-    dom.selectedLabel.value = '四角形';
-  } else if (item.type === 'circle') {
-    dom.selectedLabel.value = '円';
-  } else if (item.type === 'svg-fragment') {
-    dom.selectedLabel.value = 'SVG(高精度取り込み)';
-  } else {
-    dom.selectedLabel.value = '画像';
-  }
-
   dom.propFill.value = item.fill || '#111827';
   dom.propStroke.value = item.stroke || '#0f2f56';
+  if (selectedElements.length !== 1) {
+    return;
+  }
   dom.propFontSize.value = String(item.type === 'text' ? item.fontSize : 32);
   dom.propTextAlign.value = item.type === 'text' ? item.textAnchor : 'start';
   dom.propFontFamily.value = item.type === 'text'
@@ -2796,18 +3026,27 @@ function renderProperties() {
 }
 
 function applyPropertyFromInputs(event) {
-  const slide = currentSlide();
-  const item = slide.elements.find((item) => item.id === state.selectedElementId);
-  if (!item) return;
+  const selectedElements = getSelectedElementElements();
+  if (!selectedElements.length) return;
+  const isTextSelection = selectedElements.length === 1 && selectedElements[0].type === 'text';
   const isStrokeInput = event?.target === dom.propStroke;
 
-  if (item.type !== 'svg-fragment') {
-    item.fill = dom.propFill.value;
-    item.stroke = dom.propStroke.value;
-    if (item.type === 'text' && isStrokeInput) {
-      item.strokeWidth = Math.max(1, Number.isFinite(item.strokeWidth) ? item.strokeWidth : 1);
+  for (const item of selectedElements) {
+    if (item.type !== 'svg-fragment') {
+      item.fill = dom.propFill.value;
+      item.stroke = dom.propStroke.value;
+      if (item.type === 'text' && isStrokeInput) {
+        item.strokeWidth = Math.max(1, Number.isFinite(item.strokeWidth) ? item.strokeWidth : 1);
+      }
     }
   }
+  if (!isTextSelection) {
+    recordHistorySnapshot();
+    render();
+    return;
+  }
+
+  const item = selectedElements[0];
   if (item.type === 'text') {
     item.fontSize = normalizeTextFontSize(dom.propFontSize.value);
     item.textAnchor = normalizeTextAlign(dom.propTextAlign.value || 'start');
@@ -2840,8 +3079,13 @@ function loadLocal() {
 
     state.slides = loaded.slides;
     state.currentSlideIndex = Math.min(Math.max(0, loaded.currentSlideIndex || 0), state.slides.length - 1);
+    const nextSelectedIds = Array.isArray(loaded.selectedElementIds)
+      ? loaded.selectedElementIds
+      : loaded.selectedElementId
+        ? [loaded.selectedElementId]
+        : [];
     normalizeTextElementsInSlides(state.slides);
-    state.selectedElementId = null;
+    setSelectedElementIds(nextSelectedIds);
   } catch (error) {
     console.error('保存データの読み込み失敗', error);
   }
@@ -2864,7 +3108,7 @@ function importJSONFromInput(file) {
       state.slides = loaded.slides;
       normalizeTextElementsInSlides(state.slides);
       state.currentSlideIndex = 0;
-      state.selectedElementId = null;
+      setSelectedElementIds([]);
       recordHistorySnapshot();
       render();
     } catch {
@@ -2913,7 +3157,7 @@ function importSVGFromInput(file) {
     const shouldUseRaw = shouldUseSvgFragmentImport(root, elements);
     if (shouldUseRaw) {
       addSVGFragmentElement(slide, source, text);
-      state.selectedElementId = slide.elements.at(-1).id;
+      setSelectedElementIds([slide.elements.at(-1)?.id].filter(Boolean));
       recordHistorySnapshot();
       render();
       return;
@@ -2921,11 +3165,13 @@ function importSVGFromInput(file) {
 
     const parsed = scaleAndPositionImportedElements(elements, source);
     normalizeTextElementsInSlides([{ elements: parsed }]);
+    const pastedIds = [];
     for (const item of parsed) {
       const element = { ...item, id: createId() };
       slide.elements.push(element);
-      state.selectedElementId = element.id;
+      pastedIds.push(element.id);
     }
+    setSelectedElementIds(pastedIds);
     recordHistorySnapshot();
     render();
   };
@@ -2970,7 +3216,7 @@ function resetState() {
   localStorage.removeItem(STORAGE_KEY);
   state.slides = [createEmptySlide('スライド 1')];
   state.currentSlideIndex = 0;
-  state.selectedElementId = null;
+  setSelectedElementIds([]);
   state.pointerState = null;
   recordHistorySnapshot();
   render();
@@ -3118,8 +3364,8 @@ function setupEvents() {
         return;
       }
 
-      if (state.selectedElementId || state.pointerState) {
-        state.selectedElementId = null;
+      if (hasSelection() || state.pointerState) {
+        setSelectedElementIds([]);
         state.pointerState = null;
         render();
       }

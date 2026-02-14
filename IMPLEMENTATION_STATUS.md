@@ -211,3 +211,21 @@
   - キャンバスの空白領域クリックで選択解除
 - 次アクション
   - `3-1. 多選択`（shift/click、ドラッグ枠選択）
+
+## 進捗更新（PPTX比較：3-1 多選択）
+- 多選択の基盤を `selectedElementIds` へ統一し、ドラッグ枠選択/Shiftトグル/複数選択時の操作を実装
+  - `app.js`
+    - `setSelectedElementIds` を現在スライド内の実在IDのみを保持するように調整
+    - `renderCanvas` に複数選択描画を反映（選択枠は複数、リサイズハンドルは第一選択のみ）
+    - `onCanvasPointerDownForDeselect` を「キャンバス外クリック時のみ解除」「キャンバス内空白クリック時のみ marquee 開始」に分離
+    - `onElementPointerDown` に Shift 選択トグルを追加（Shift クリックは選択更新のみ）
+    - `renderProperties` を多選択対応（複数選択時は文字系コントロールを非表示/非適用）
+    - `applyPropertyFromInputs` を複数選択時の一括 fill/stroke とテキスト単体選択時の編集分離に更新
+    - 既存の保存/読み込み・SVG取り込み・リセット・キー操作で選択解放時に `setSelectedElementIds` を利用
+    - `styles.css` に `marquee-selection` を追加
+- 受け入れ条件
+  - Shift + クリックで選択追加/解除が切替可能
+  - キャンバス外クリックで選択解除、キャンバス空白ドラッグで選択枠が可視化
+  - 複数選択状態で同時移動、複製、削除が一貫して動作
+- 次アクション
+  - `3-2. 整列・配置`
