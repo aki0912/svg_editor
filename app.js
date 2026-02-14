@@ -241,51 +241,136 @@ function applyResizeSnap(next, handle, baseBounds) {
   if (!snapEngine) return next;
 
   const slide = currentSlide();
-  const result = snapEngine.snapMove({
+  const hasMoveLeft = handle.includes('w');
+  const hasMoveRight = handle.includes('e');
+  const hasMoveTop = handle.includes('n');
+  const hasMoveBottom = handle.includes('s');
+
+  const rightEdge = next.x + next.width;
+  const bottomEdge = next.y + next.height;
+  const fixedLeft = baseBounds.x;
+  const fixedRight = baseBounds.x + baseBounds.width;
+  const fixedTop = baseBounds.y;
+  const fixedBottom = baseBounds.y + baseBounds.height;
+
+  const snapped = {
     x: next.x,
     y: next.y,
     width: next.width,
     height: next.height,
-    elements: slide.elements,
-    activeElementId: state.pointerState.elementId,
-    slideWidth: slide.width,
-    slideHeight: slide.height,
-    snapThreshold: SNAP_THRESHOLD,
-  });
+  };
+
+  let guideX = null;
+  let guideY = null;
+  let hasSnapX = false;
+  let hasSnapY = false;
+
+  if (hasMoveLeft) {
+    const leftSnap = snapEngine.snapMove({
+      x: next.x,
+      y: next.y,
+      width: 0,
+      height: next.height,
+      elements: slide.elements,
+      activeElementId: state.pointerState.elementId,
+      slideWidth: slide.width,
+      slideHeight: slide.height,
+      snapThreshold: SNAP_THRESHOLD,
+    });
+
+    if (leftSnap.hasSnapX) {
+      const alignedLeft = Number.isFinite(leftSnap.x) ? leftSnap.x : next.x;
+      const alignedGuide = Number.isFinite(leftSnap.guideX) ? leftSnap.guideX : alignedLeft;
+      snapped.x = alignedLeft;
+      snapped.width = Math.max(20, fixedRight - alignedLeft);
+      guideX = alignedGuide;
+      hasSnapX = true;
+    }
+  }
+
+  if (hasMoveRight) {
+    const rightSnap = snapEngine.snapMove({
+      x: rightEdge,
+      y: next.y,
+      width: 0,
+      height: next.height,
+      elements: slide.elements,
+      activeElementId: state.pointerState.elementId,
+      slideWidth: slide.width,
+      slideHeight: slide.height,
+      snapThreshold: SNAP_THRESHOLD,
+    });
+
+    const alignedRight = Number.isFinite(rightSnap.guideX) ? rightSnap.guideX : rightEdge;
+    if (rightSnap.hasSnapX) {
+      snapped.width = Math.max(20, alignedRight - fixedLeft);
+      snapped.x = fixedLeft;
+      guideX = alignedRight;
+      hasSnapX = true;
+    }
+  }
+
+  if (hasMoveTop) {
+    const topSnap = snapEngine.snapMove({
+      x: next.x,
+      y: next.y,
+      width: next.width,
+      height: 0,
+      elements: slide.elements,
+      activeElementId: state.pointerState.elementId,
+      slideWidth: slide.width,
+      slideHeight: slide.height,
+      snapThreshold: SNAP_THRESHOLD,
+    });
+
+    if (topSnap.hasSnapY) {
+      const alignedTop = Number.isFinite(topSnap.y) ? topSnap.y : next.y;
+      const alignedGuide = Number.isFinite(topSnap.guideY) ? topSnap.guideY : alignedTop;
+      snapped.y = alignedTop;
+      snapped.height = Math.max(20, fixedBottom - alignedTop);
+      guideY = alignedGuide;
+      hasSnapY = true;
+    }
+  }
+
+  if (hasMoveBottom) {
+    const bottomSnap = snapEngine.snapMove({
+      x: next.x,
+      y: bottomEdge,
+      width: next.width,
+      height: 0,
+      elements: slide.elements,
+      activeElementId: state.pointerState.elementId,
+      slideWidth: slide.width,
+      slideHeight: slide.height,
+      snapThreshold: SNAP_THRESHOLD,
+    });
+
+    const alignedBottom = Number.isFinite(bottomSnap.guideY) ? bottomSnap.guideY : bottomEdge;
+    if (bottomSnap.hasSnapY) {
+      snapped.height = Math.max(20, alignedBottom - fixedTop);
+      snapped.y = fixedTop;
+      guideY = alignedBottom;
+      hasSnapY = true;
+    }
+  }
+
+  if (!hasMoveLeft && !hasMoveRight) {
+    snapped.x = fixedLeft;
+    snapped.width = baseBounds.width;
+  }
+
+  if (!hasMoveTop && !hasMoveBottom) {
+    snapped.y = fixedTop;
+    snapped.height = baseBounds.height;
+  }
 
   activeSnapGuide = {
-    guideX: Number.isFinite(result.guideX) ? result.guideX : null,
-    guideY: Number.isFinite(result.guideY) ? result.guideY : null,
-    hasSnapX: !!result.hasSnapX,
-    hasSnapY: !!result.hasSnapY,
+    guideX: Number.isFinite(guideX) ? guideX : null,
+    guideY: Number.isFinite(guideY) ? guideY : null,
+    hasSnapX,
+    hasSnapY,
   };
-
-  const snapped = {
-    x: Number.isFinite(result.x) ? result.x : next.x,
-    y: Number.isFinite(result.y) ? result.y : next.y,
-    width: next.width,
-    height: next.height,
-  };
-
-  if (handle.includes('w')) {
-    const fixedRight = baseBounds.x + baseBounds.width;
-    snapped.width = Math.max(20, fixedRight - snapped.x);
-  }
-
-  if (handle.includes('e')) {
-    const fixedLeft = baseBounds.x;
-    snapped.width = Math.max(20, snapped.x + snapped.width - fixedLeft);
-  }
-
-  if (handle.includes('n')) {
-    const fixedBottom = baseBounds.y + baseBounds.height;
-    snapped.height = Math.max(20, fixedBottom - snapped.y);
-  }
-
-  if (handle.includes('s')) {
-    const fixedTop = baseBounds.y;
-    snapped.height = Math.max(20, snapped.y + snapped.height - fixedTop);
-  }
 
   return snapped;
 }
