@@ -1915,6 +1915,10 @@ function getTextLineHeight(fontSize, lineSpacing = TEXT_LINE_SPACING_DEFAULT) {
   return Math.max(16, Math.round(baseSize * safeSpacing));
 }
 
+function getTextRenderTopY(element, lineHeight = null) {
+  return Number(element?.y) || 0;
+}
+
 function getTextAlignCssValue(textAnchor) {
   if (textCommands && typeof textCommands.getTextAlignCssValue === 'function') {
     return textCommands.getTextAlignCssValue(textAnchor);
@@ -2011,7 +2015,8 @@ function getTextCaretOffsetFromPoint(element, point) {
     : textAlign === 'end'
       ? Number(element.x || 0) + (Number.isFinite(elementWidth) ? elementWidth : 0)
       : Number(element.x || 0);
-  const cursorLine = clamp(Math.floor((point.y - element.y - fontSize * 0.25) / lineHeight), 0, lines.length - 1);
+  const renderTopY = getTextRenderTopY(element, lineHeight);
+  const cursorLine = clamp(Math.floor((point.y - renderTopY) / lineHeight), 0, lines.length - 1);
   const currentLine = lines[cursorLine] || '';
   const currentLineWidth = Math.max(1, measuredLineWidths[cursorLine] || getTextLineWidth(currentLine, fontSize, element));
 
@@ -2112,7 +2117,7 @@ function createThumbnailTextNode(el) {
   });
 
   text.setAttribute('x', String(lineX));
-  text.setAttribute('y', String((Number(el.y) || 0) + fontSize));
+  text.setAttribute('y', String(getTextRenderTopY(el, lineHeight)));
   text.setAttribute('fill', el.fill || '#111827');
   text.setAttribute('font-size', String(fontSize));
   text.setAttribute('font-family', safeFontFamily);
@@ -2508,7 +2513,7 @@ function renderElement(el) {
     });
 
     text.setAttribute('x', lineX);
-    text.setAttribute('y', (Number(el.y) || 0) + fontSize);
+    text.setAttribute('y', getTextRenderTopY(el, lineHeight));
     text.setAttribute('fill', el.fill || '#111827');
     text.setAttribute('font-size', String(fontSize));
     text.setAttribute('font-family', fontFamily);
@@ -2983,26 +2988,19 @@ function openTextEditorForElement(elementId, point = null) {
   const group = dom.canvas.querySelector(`[data-element-id="${elementId}"]`);
   if (!group) return;
   const textElement = group.querySelector('text');
-  const renderedTextBounds = textElement ? getNodeBBox(textElement) : null;
   if (textElement) textElement.setAttribute('visibility', 'hidden');
 
   const elementX = Number(element.x) || 0;
   const elementY = Number(element.y) || 0;
   const width = Math.max(1, Number(element.width) || 1);
   const initialHeight = Math.max(1, Number(element.height) || 1);
-  const elementBottomY = elementY + initialHeight;
-  let editorY = elementY;
-  if (renderedTextBounds && Number.isFinite(renderedTextBounds.y)) {
-    editorY = clamp(renderedTextBounds.y, elementY, Math.max(elementY, elementBottomY - 1));
-  }
-  const editorHeight = Math.max(1, elementBottomY - editorY);
   const textLines = (element.text || '').split('\n');
 
   const foreignObject = document.createElementNS(SVG_NS, 'foreignObject');
   foreignObject.setAttribute('x', elementX);
-  foreignObject.setAttribute('y', editorY);
+  foreignObject.setAttribute('y', elementY);
   foreignObject.setAttribute('width', width);
-  foreignObject.setAttribute('height', editorHeight);
+  foreignObject.setAttribute('height', initialHeight);
   foreignObject.setAttribute('data-inline-text-editor', '1');
 
   const host = document.createElementNS(HTML_NS, 'div');
