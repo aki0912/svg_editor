@@ -22,12 +22,29 @@
   - 戻る/進むボタンは `canvas-wrap` 内右上に配置
   - CSS: `.snap-guide-line` 追加
 
+- テキスト拡張の基盤整理
+  - `src/commands/elementCommands.js` 追加
+  - `tests/elementCommands.test.js` 追加
+  - `index.html` で `src/commands/elementCommands.js` 読み込み
+  - `app.js` のテキスト計測ヘルパーをコモンコマンド化
+  - テキスト編集確定時・フォント更新時の高さ補正を追加
+  - SVGインポート時のテキスト幅/高さ推定を `estimateTextBoxMetrics` に統一
+- フォント名正規化（クォート混在対応）
+  - `normalizeFontFamilyValue` のトークン分解を拡張し、クォート付き値の一貫化に対応
+  - `normalizeFontFamilyInputValue` でも同じ規則で表示値を正規化
+  - `tests/elementCommands.test.js` でクォート付きケースを追加
+- フォント名正規化（空白含むファミリ名）
+  - `src/commands/elementCommands.js` に `normalizeFontFamilyValue` を追加し、`buildTextFontDescription` へ適用
+  - `app.js` で描画・インライン編集エリアに同値を適用し、`Yu Gothic`/`Times New Roman` 系フォントの反映不良を解消
+
 ## 変更した主なファイル
 - `app.js`
 - `index.html`
 - `styles.css`
 - `src/commands/snap.js`
 - `tests/snap.test.js`
+- `src/commands/elementCommands.js`
+- `tests/elementCommands.test.js`
 
 ## 直近の調整内容（履歴関連）
 - 「戻る」「進む」をスライド外に固定していた位置から、画面内に見やすく移動
@@ -36,9 +53,10 @@
 
 ## テスト実行結果（最終確認）
 - 実行: `npm test`
-- 結果: `PASS`（2ファイル、7テスト）
+- 結果: `PASS`（3ファイル、16テスト）
   - `tests/history.test.js` 4件
   - `tests/snap.test.js` 3件
+  - `tests/elementCommands.test.js` 8件
 
 ## 既知の未実装（未完）
 - スナップは「移動時」のみ実装（リサイズ時スナップ未実装）
@@ -48,7 +66,7 @@
 ## 次アクション候補（優先度順）
 1. ✅ P0: リサイズ中スナップの追加（`onPointerMove` resize 分岐へ適用）
 2. ✅ P1: スナップ閾値のUI設定（ユーザ調整）
-3. P1: スナップガイドの視認性向上（色・点線・長さ）
+3. ✅ P1: スナップガイドの視認性向上（色・点線・長さ）
 4. P2: ガイド消去タイミングのUX調整（ドラッグ離脱時のフェード）
 
 ## 補足
@@ -66,8 +84,8 @@
 ## 現在の未実装（引き続き）
 - リサイズ時スナップの厳密仕様（例えば固定エッジ優先ルールのチューニング）
 - スナップ閾値設定値がUIで保存されるかを確認するE2E
-- ガイドの見え方/色・表示時間の微調整
 - alignSnap 名寄せ完了（`src/commands/alignSnap.js` を新規追加し、`app.js` は `EditorAlignSnap` を優先参照）
+- ガイドの見え方/色・表示時間の微調整
 
 ## カーソル挙動修正（確認対応）
 - 原因: リサイズハンドルのカーソル判定順が角ハンドルでも縦/横側に先取りされ、
@@ -99,3 +117,9 @@
   - 反対辺を固定したまま width/height を再計算
   - ガイド情報も移動辺側にのみ反映
 - 検証: `npm test` 全件PASS
+
+## テキスト作業（最新）
+- テキスト編集確定時に `height` を推定サイズへ同期するため `syncTextElementHeightFromContent` を追加
+- フォントサイズ・フォント指定変更時に高さ再計算を実施
+- SVGインポート時のテキスト要素サイズを `estimateTextBoxMetrics` で見積もる実装
+- 反映状況: `app.js` と `IMPLEMENTATION_STATUS.md` を更新済み

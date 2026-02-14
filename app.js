@@ -6,6 +6,53 @@ const TEXT_EDIT_DRAG_THRESHOLD = 4;
 const SNAP_THRESHOLD_DEFAULT = 10;
 const SNAP_THRESHOLD_MIN = 0;
 const SNAP_THRESHOLD_MAX = 40;
+const textCommands = typeof window !== 'undefined'
+  && window.EditorElementCommands
+  && typeof window.EditorElementCommands === 'object'
+    ? window.EditorElementCommands
+    : null;
+const DEFAULT_TEXT_FONT_FAMILY = textCommands && textCommands.DEFAULT_TEXT_FONT_FAMILY
+  ? textCommands.DEFAULT_TEXT_FONT_FAMILY
+  : 'Arial, sans-serif';
+const TEXT_LINE_HEIGHT_RATIO = textCommands && textCommands.TEXT_LINE_HEIGHT_RATIO
+  ? textCommands.TEXT_LINE_HEIGHT_RATIO
+  : 1.3;
+const normalizeFontFamilyValue = textCommands && typeof textCommands.normalizeFontFamilyValue === 'function'
+  ? textCommands.normalizeFontFamilyValue
+  : (value) => String(value || DEFAULT_TEXT_FONT_FAMILY).trim() || DEFAULT_TEXT_FONT_FAMILY;
+function normalizeFontFamilyInputValue(fontFamily = '') {
+  const normalized = normalizeFontFamilyValue(String(fontFamily || '').trim());
+  const parts = normalized
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => part.replace(/^"(.+)"$/g, '$1').replace(/^'(.+)'$/g, '$1'))
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (!parts.length) return DEFAULT_TEXT_FONT_FAMILY;
+  return parts.join(', ');
+}
+const estimateTextBoxMetrics = textCommands && typeof textCommands.estimateTextBoxMetrics === 'function'
+  ? textCommands.estimateTextBoxMetrics
+  : (text, fontSize = 32, options = {}) => {
+    const lines = (text || '').split('\n');
+    const lineFontSize = Number(fontSize) || 32;
+    const textElement = {
+      fontFamily: options.fontFamily || DEFAULT_TEXT_FONT_FAMILY,
+      fontWeight: options.fontWeight || 'normal',
+      fontStyle: options.fontStyle || 'normal',
+      fontSize: lineFontSize,
+    };
+    const lineWidths = lines.map((line) => getTextLineWidth(line, lineFontSize, textElement));
+    const width = Math.max(40, Math.round(Math.max(...lineWidths)));
+    const height = Math.max(16, Math.round(getTextLineHeight(lineFontSize) * Math.max(1, lines.length)));
+
+    return {
+      width,
+      height,
+    };
+  };
 
 const state = {
   slides: [createEmptySlide('スライド 1')],
@@ -69,6 +116,10 @@ const dom = {
   propStroke: document.getElementById('prop-stroke'),
   propStrokeLabel: document.getElementById('prop-stroke-label'),
   propFontSize: document.getElementById('prop-font-size'),
+  propTextAlign: document.getElementById('prop-text-align'),
+  propFontFamily: document.getElementById('prop-font-family'),
+  propFontBold: document.getElementById('prop-font-bold'),
+  propFontItalic: document.getElementById('prop-font-italic'),
   propText: document.getElementById('prop-text'),
   snapThresholdInput: document.getElementById('snap-threshold'),
   snapThresholdValue: document.getElementById('snap-threshold-value'),
@@ -1041,7 +1092,7 @@ function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
   const baseX = parseNumber(getNodeStyleValue(node, 'x', 0, svgRoot), 0);
   const baseY = parseNumber(getNodeStyleValue(node, 'y', 0, svgRoot), 0);
   const baseFontSize = parseNumber(getNodeStyleValue(node, 'font-size', 18, svgRoot), 18);
-  const baseFontFamily = getNodeStyleValue(node, 'font-family', 'Arial, sans-serif', svgRoot);
+  const baseFontFamily = normalizeFontFamilyInputValue(getNodeStyleValue(node, 'font-family', 'Arial, sans-serif', svgRoot));
   const baseFill = getNodeStyleValue(node, 'fill', '#111827', svgRoot);
   const baseTextAnchor = getNodeStyleValue(node, 'text-anchor', 'start', svgRoot);
   const baseDominantBaseline = getNodeStyleValue(node, 'dominant-baseline', 'auto', svgRoot);
@@ -1063,7 +1114,7 @@ function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
     const spanDY = parseNumber(span.getAttribute('dy'), 0);
     const spanDX = parseNumber(span.getAttribute('dx'), 0);
     const spanFontSize = parseNumber(getNodeStyleValue(span, 'font-size', baseFontSize, svgRoot), baseFontSize);
-    const fontFamily = getNodeStyleValue(span, 'font-family', baseFontFamily, svgRoot);
+    const fontFamily = normalizeFontFamilyInputValue(getNodeStyleValue(span, 'font-family', baseFontFamily, svgRoot));
     const fill = getNodeStyleValue(span, 'fill', baseFill, svgRoot);
     const stroke = getNodeStyleValue(span, 'stroke', 'none', svgRoot);
     const strokeWidth = parseNumber(getNodeStyleValue(span, 'stroke-width', 0, svgRoot), 0);
@@ -1258,10 +1309,18 @@ function parseSVGElements(svgRoot) {
         const box = getNodeBBox(node);
         const baseX = box ? box.x : parseNumber(node.getAttribute('x'), 0);
         const fontSize = parseNumber(getNodeStyleValue(node, 'font-size', 18, svgRoot), 18);
+        const fontFamily = normalizeFontFamilyInputValue(getNodeStyleValue(node, 'font-family', 'Arial, sans-serif', svgRoot));
+        const fontWeight = getNodeStyleValue(node, 'font-weight', 'normal', svgRoot);
+        const fontStyle = getNodeStyleValue(node, 'font-style', 'normal', svgRoot);
         const estimatedText = (node.textContent || '').trim() || 'text';
         const baseY = (box ? box.y : parseNumber(node.getAttribute('y'), 0) - fontSize);
-        const width = Math.max(12, box ? box.width : Math.max(40, estimatedText.length * fontSize * 0.65));
-        const height = Math.max(12, box ? box.height : fontSize + 16);
+        const estimatedMetrics = estimateTextBoxMetrics(estimatedText, fontSize, {
+          fontFamily,
+          fontWeight,
+          fontStyle,
+        });
+        const width = Math.max(12, box ? box.width : estimatedMetrics.width);
+        const height = Math.max(12, box ? box.height : estimatedMetrics.height);
         const nodeText = createSVGFragmentFromNode(node, svgRoot);
         const sourceWidth = Math.max(1, box ? box.width : width);
         const sourceHeight = Math.max(1, box ? box.height : height);
@@ -1285,8 +1344,8 @@ function parseSVGElements(svgRoot) {
           textAnchor: getNodeStyleValue(node, 'text-anchor', 'start', svgRoot),
           dominantBaseline: getNodeStyleValue(node, 'dominant-baseline', 'auto', svgRoot),
           alignmentBaseline: getNodeStyleValue(node, 'alignment-baseline', 'auto', svgRoot),
-          fontWeight: getNodeStyleValue(node, 'font-weight', 'normal', svgRoot),
-          fontStyle: getNodeStyleValue(node, 'font-style', 'normal', svgRoot),
+          fontWeight,
+          fontStyle,
           stroke: getNodeStyleValue(node, 'stroke', 'none', svgRoot),
           strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 0, svgRoot), 0),
         });
@@ -1295,22 +1354,30 @@ function parseSVGElements(svgRoot) {
 
       const text = (node.textContent || '').trim() || 'text';
       const fontSize = parseNumber(getNodeStyleValue(node, 'font-size', 32, svgRoot), 32);
+      const fontFamily = normalizeFontFamilyInputValue(getNodeStyleValue(node, 'font-family', 'Arial, sans-serif', svgRoot));
+      const fontWeight = getNodeStyleValue(node, 'font-weight', 'normal', svgRoot);
+      const fontStyle = getNodeStyleValue(node, 'font-style', 'normal', svgRoot);
+      const estimatedMetrics = estimateTextBoxMetrics(text, fontSize, {
+        fontFamily,
+        fontWeight,
+        fontStyle,
+      });
       const x = parseNumber(getNodeStyleValue(node, 'x', 0, svgRoot), 0) + transformOffset.x;
       const y = parseNumber(getNodeStyleValue(node, 'y', 0, svgRoot), 0) + transformOffset.y;
       parsed.push({
         type: 'text',
         x,
         y: y - fontSize,
-        width: Math.max(40, text.length * fontSize * 0.65),
-        height: fontSize + 16,
+        width: Math.max(40, estimatedMetrics.width),
+        height: Math.max(12, estimatedMetrics.height),
         text,
         fontSize,
-        fontFamily: getNodeStyleValue(node, 'font-family', 'Arial, sans-serif', svgRoot),
+        fontFamily,
         textAnchor: getNodeStyleValue(node, 'text-anchor', 'start', svgRoot),
         dominantBaseline: getNodeStyleValue(node, 'dominant-baseline', 'auto', svgRoot),
         alignmentBaseline: getNodeStyleValue(node, 'alignment-baseline', 'auto', svgRoot),
-        fontWeight: getNodeStyleValue(node, 'font-weight', 'normal', svgRoot),
-        fontStyle: getNodeStyleValue(node, 'font-style', 'normal', svgRoot),
+        fontWeight,
+        fontStyle,
         fill: getNodeStyleValue(node, 'fill', '#111827', svgRoot),
         stroke: getNodeStyleValue(node, 'stroke', 'none', svgRoot),
         strokeWidth: parseNumber(getNodeStyleValue(node, 'stroke-width', 0, svgRoot), 0),
@@ -1399,6 +1466,7 @@ function clamp(value, min, max) {
 }
 
 function getTextMeasureContext() {
+  if (typeof document === 'undefined' || typeof document.createElement !== 'function') return null;
   if (!textMeasureContext) {
     const canvas = document.createElement('canvas');
     textMeasureContext = canvas.getContext('2d');
@@ -1406,16 +1474,47 @@ function getTextMeasureContext() {
   return textMeasureContext;
 }
 
+function getTextLineHeight(fontSize) {
+  if (textCommands && typeof textCommands.getTextLineHeight === 'function') {
+    return textCommands.getTextLineHeight(fontSize);
+  }
+  const baseSize = Number(fontSize) || 32;
+  return Math.max(16, Math.round(baseSize * TEXT_LINE_HEIGHT_RATIO));
+}
+
+function getTextAlignCssValue(textAnchor) {
+  if (textCommands && typeof textCommands.getTextAlignCssValue === 'function') {
+    return textCommands.getTextAlignCssValue(textAnchor);
+  }
+  if (textAnchor === 'middle') return 'center';
+  if (textAnchor === 'end') return 'right';
+  return 'left';
+}
+
+function getTextLineWidth(line, fontSize, element) {
+  if (textCommands && typeof textCommands.getTextLineWidth === 'function') {
+    return textCommands.getTextLineWidth(line, fontSize, element);
+  }
+  const normalizedFontSize = Number(fontSize) || Number(element?.fontSize) || 32;
+  return Math.max(1, (line || '').length * Math.max(6, normalizedFontSize * 0.62));
+}
+
 function buildTextFontDescription(element) {
+  if (textCommands && typeof textCommands.buildTextFontDescription === 'function') {
+    return textCommands.buildTextFontDescription(element);
+  }
   return [
     element?.fontStyle || 'normal',
     element?.fontWeight || 'normal',
     `${element?.fontSize || 32}px`,
-    element?.fontFamily || 'Arial, sans-serif',
+    element?.fontFamily || DEFAULT_TEXT_FONT_FAMILY,
   ].join(' ');
 }
 
-function getTextOffsetForLine(line, targetX, ctx) {
+function getTextOffsetForLine(line, targetX, ctx, element) {
+  if (textCommands && typeof textCommands.getTextOffsetForLine === 'function') {
+    return textCommands.getTextOffsetForLine(line, targetX, ctx, element);
+  }
   const width = targetX <= 0 ? 0 : targetX;
   if (!line) return 0;
   if (width === 0) return 0;
@@ -1444,41 +1543,60 @@ function getTextOffsetForLine(line, targetX, ctx) {
 }
 
 function getTextCaretOffsetFromPoint(element, point) {
+  if (textCommands && typeof textCommands.getTextCaretOffsetFromPoint === 'function') {
+    return textCommands.getTextCaretOffsetFromPoint(element, point);
+  }
   if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
     return (element.text || '').length;
   }
 
   const fontSize = Number(element.fontSize || 32);
-  const lineHeight = Math.max(16, Math.round(fontSize * 1.2));
+  const lineHeight = getTextLineHeight(fontSize);
   const lines = (element.text || '').split('\n');
   const textAnchor = element.textAnchor || 'start';
-  const width = Math.max(1, element.width || estimateTextBoxMetrics(element.text, fontSize).width);
+  if (!lines.length) return 0;
+
+  const measuredLineWidths = lines.map((line) => getTextLineWidth(line, fontSize, element));
+  const cursorLine = clamp(Math.floor((point.y - element.y - fontSize * 0.25) / lineHeight), 0, lines.length - 1);
+  const currentLine = lines[cursorLine] || '';
+  const currentLineWidth = Math.max(1, measuredLineWidths[cursorLine] || getTextLineWidth(currentLine, fontSize, element));
 
   let x = point.x - element.x;
-  const y = point.y - (element.y + fontSize * 0.25);
-  const rawLine = Math.floor(y / lineHeight);
-  const lineIndex = clamp(rawLine, 0, lines.length - 1);
 
   if (textAnchor === 'middle') {
-    x -= width / 2;
+    x -= (currentLineWidth + 1) / 2;
   } else if (textAnchor === 'end') {
-    x -= width;
+    x -= currentLineWidth;
   }
 
-  const lineText = lines[lineIndex] || '';
   const ctx = getTextMeasureContext();
   if (!ctx) return element.text.length;
   ctx.font = buildTextFontDescription(element);
 
   const clampedX = Math.max(0, x);
-  const localOffset = getTextOffsetForLine(lineText, clampedX, ctx);
+  const localOffset = getTextOffsetForLine(currentLine, clampedX, ctx, element);
 
   let offset = 0;
-  for (let i = 0; i < lineIndex; i += 1) {
+  for (let i = 0; i < cursorLine; i += 1) {
     const line = lines[i] || '';
     offset += line.length + 1;
   }
   return clamp(offset + localOffset, 0, element.text.length);
+}
+
+function syncTextElementHeightFromContent(element) {
+  if (!element || element.type !== 'text') return;
+
+  const metrics = estimateTextBoxMetrics((element.text || ''), Number(element.fontSize) || 32, {
+    fontFamily: element.fontFamily || DEFAULT_TEXT_FONT_FAMILY,
+    fontWeight: element.fontWeight || 'normal',
+    fontStyle: element.fontStyle || 'normal',
+  });
+
+  const nextHeight = Math.max(12, metrics.height);
+  if (!Number.isFinite(element.height) || element.height < nextHeight) {
+    element.height = nextHeight;
+  }
 }
 
 function render() {
@@ -1545,13 +1663,18 @@ function renderSnapGuides(slide) {
   if (!activeSnapGuide) return;
   if (!state.pointerState || !['move', 'resize'].includes(state.pointerState.mode)) return;
 
+  const guideClass = activeSnapGuide.hasSnapX && activeSnapGuide.hasSnapY
+    ? 'snap-guide-line snap-guide-line--dual'
+    : 'snap-guide-line';
+
   if (activeSnapGuide.hasSnapX) {
     const guide = document.createElementNS(SVG_NS, 'line');
     guide.setAttribute('x1', activeSnapGuide.guideX);
     guide.setAttribute('y1', 0);
     guide.setAttribute('x2', activeSnapGuide.guideX);
     guide.setAttribute('y2', slide.height);
-    guide.classList.add('snap-guide-line');
+    guide.setAttribute('vector-effect', 'non-scaling-stroke');
+    guide.classList.add(...guideClass.split(' '));
     dom.canvas.appendChild(guide);
   }
 
@@ -1561,8 +1684,19 @@ function renderSnapGuides(slide) {
     guide.setAttribute('y1', activeSnapGuide.guideY);
     guide.setAttribute('x2', slide.width);
     guide.setAttribute('y2', activeSnapGuide.guideY);
-    guide.classList.add('snap-guide-line');
+    guide.setAttribute('vector-effect', 'non-scaling-stroke');
+    guide.classList.add(...guideClass.split(' '));
     dom.canvas.appendChild(guide);
+  }
+
+  if (activeSnapGuide.hasSnapX && activeSnapGuide.hasSnapY) {
+    const marker = document.createElementNS(SVG_NS, 'circle');
+    marker.setAttribute('cx', activeSnapGuide.guideX);
+    marker.setAttribute('cy', activeSnapGuide.guideY);
+    marker.setAttribute('r', 5);
+    marker.setAttribute('vector-effect', 'non-scaling-stroke');
+    marker.classList.add('snap-guide-marker');
+    dom.canvas.appendChild(marker);
   }
 }
 
@@ -1573,12 +1707,27 @@ function renderElement(el) {
 
   if (el.type === 'text') {
     const text = document.createElementNS(SVG_NS, 'text');
-    text.textContent = el.text || '';
+    const fontFamily = normalizeFontFamilyValue(el.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
+    const textLines = (el.text || '').split('\n');
+    const fontSize = Number(el.fontSize) || 32;
+    const lineHeight = getTextLineHeight(fontSize);
+    const lineX = el.x;
+
+    textLines.forEach((line, index) => {
+      const tspan = document.createElementNS(SVG_NS, 'tspan');
+      if (index > 0) {
+        tspan.setAttribute('x', lineX);
+        tspan.setAttribute('dy', String(lineHeight));
+      }
+      tspan.textContent = line;
+      text.appendChild(tspan);
+    });
+
     text.setAttribute('x', el.x);
     text.setAttribute('y', el.y + el.fontSize);
     text.setAttribute('fill', el.fill || '#111827');
-    text.setAttribute('font-size', String(el.fontSize || 32));
-    text.setAttribute('font-family', el.fontFamily || 'Arial, sans-serif');
+    text.setAttribute('font-size', String(fontSize));
+    text.setAttribute('font-family', fontFamily);
     text.setAttribute('font-weight', el.fontWeight || 'normal');
     text.setAttribute('font-style', el.fontStyle || 'normal');
     text.setAttribute('text-anchor', el.textAnchor || 'start');
@@ -1741,15 +1890,6 @@ function getElementBounds(el) {
   };
 }
 
-function estimateTextBoxMetrics(text, fontSize = 32) {
-  const content = (text || '').replace(/\n/g, ' ');
-  const length = Math.max(1, content.length);
-  return {
-    width: Math.max(40, Math.round(length * Math.max(6, fontSize * 0.62))),
-    height: Math.max(16, Math.round(fontSize + 12)),
-  };
-}
-
 function closeActiveTextEditor({ commit = true, rerender = true } = {}) {
   if (!activeTextEditor) return;
 
@@ -1771,6 +1911,9 @@ function closeActiveTextEditor({ commit = true, rerender = true } = {}) {
     const nextText = editor.textarea.value;
     textCommitted = target.text !== nextText;
     target.text = nextText;
+    if (target.type === 'text') {
+      syncTextElementHeightFromContent(target);
+    }
   }
 
   if (textCommitted) {
@@ -1801,6 +1944,7 @@ function openTextEditorForElement(elementId, point = null) {
 
   const width = Math.max(1, Number(element.width) || 1);
   const initialHeight = Math.max(1, Number(element.height) || 1);
+  const textLines = (element.text || '').split('\n');
 
   const foreignObject = document.createElementNS(SVG_NS, 'foreignObject');
   foreignObject.setAttribute('x', element.x);
@@ -1815,9 +1959,10 @@ function openTextEditorForElement(elementId, point = null) {
 
   const textarea = document.createElementNS(HTML_NS, 'textarea');
   textarea.value = element.text || '';
-  textarea.rows = 1;
+  textarea.rows = Math.max(1, textLines.length);
   textarea.setAttribute('aria-label', 'テキストを直接編集');
   textarea.className = 'inline-textarea';
+  const fontFamily = normalizeFontFamilyValue(element.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
   textarea.style.cssText = [
     'width:100%;',
     'height:100%;',
@@ -1829,9 +1974,10 @@ function openTextEditorForElement(elementId, point = null) {
     'background:rgba(255,255,255,0.98);',
     `color:${element.fill || '#111827'};`,
     `font-size:${element.fontSize || 32}px;`,
-    `font-family:${element.fontFamily || 'Arial, sans-serif'};`,
+    `font-family:${fontFamily};`,
     `font-weight:${element.fontWeight || 'normal'};`,
     `font-style:${element.fontStyle || 'normal'};`,
+    `text-align:${getTextAlignCssValue(element.textAnchor || 'start')};`,
     'line-height:1.2;',
     'white-space:pre-wrap;',
     'resize:none;',
@@ -1851,11 +1997,6 @@ function openTextEditorForElement(elementId, point = null) {
       closeActiveTextEditor({ commit: false, rerender: false });
       render();
       return;
-    }
-
-    if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey) {
-      event.preventDefault();
-      closeActiveTextEditor({ commit: true, rerender: true });
     }
   });
 
@@ -2068,7 +2209,7 @@ function addElement(type) {
   const id = createId();
 
   if (type === 'text') {
-    slide.elements.push({
+    const textElement = {
       id,
       type,
       x: cx,
@@ -2077,8 +2218,14 @@ function addElement(type) {
       height: 58,
       text: 'テキストを入力',
       fontSize: 32,
+      fontFamily: DEFAULT_TEXT_FONT_FAMILY,
+      fontWeight: 'normal',
+      fontStyle: 'normal',
+      textAnchor: 'start',
       fill: '#111827',
-    });
+    };
+    syncTextElementHeightFromContent(textElement);
+    slide.elements.push(textElement);
   }
 
   if (type === 'rect') {
@@ -2213,6 +2360,10 @@ function renderProperties() {
   dom.propFill.disabled = !supportsFill || !hasSelection;
   dom.propStroke.disabled = !supportsFill || !hasSelection;
   dom.propFontSize.disabled = !hasSelection || item?.type !== 'text';
+  dom.propTextAlign.disabled = !hasSelection || item?.type !== 'text';
+  dom.propFontFamily.disabled = !hasSelection || item?.type !== 'text';
+  dom.propFontBold.disabled = !hasSelection || item?.type !== 'text';
+  dom.propFontItalic.disabled = !hasSelection || item?.type !== 'text';
   dom.propText.disabled = !hasSelection || item?.type !== 'text';
   dom.bringFront.disabled = !hasSelection;
   dom.sendBack.disabled = !hasSelection;
@@ -2225,6 +2376,10 @@ function renderProperties() {
     dom.propFill.value = '#000000';
     dom.propStroke.value = '#000000';
     dom.propFontSize.value = '32';
+    dom.propTextAlign.value = 'start';
+    dom.propFontFamily.value = DEFAULT_TEXT_FONT_FAMILY;
+    dom.propFontBold.checked = false;
+    dom.propFontItalic.checked = false;
     dom.propText.value = '';
     return;
   }
@@ -2244,6 +2399,10 @@ function renderProperties() {
   dom.propFill.value = item.fill || '#111827';
   dom.propStroke.value = item.stroke || '#0f2f56';
   dom.propFontSize.value = String(item.fontSize || 32);
+  dom.propTextAlign.value = item.textAnchor || 'start';
+  dom.propFontFamily.value = normalizeFontFamilyInputValue(item.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
+  dom.propFontBold.checked = (item.fontWeight || 'normal') === 'bold';
+  dom.propFontItalic.checked = (item.fontStyle || 'normal') === 'italic';
   if (editing && editing.id === item.id) {
     dom.propText.value = activeTextEditor?.textarea?.value || '';
     dom.propText.disabled = true;
@@ -2266,6 +2425,13 @@ function applyPropertyFromInputs(event) {
     }
   }
   item.fontSize = Number(dom.propFontSize.value || 32);
+  if (item.type === 'text') {
+    item.textAnchor = dom.propTextAlign.value || 'start';
+    item.fontFamily = normalizeFontFamilyInputValue(dom.propFontFamily.value || DEFAULT_TEXT_FONT_FAMILY);
+    item.fontWeight = dom.propFontBold.checked ? 'bold' : 'normal';
+    item.fontStyle = dom.propFontItalic.checked ? 'italic' : 'normal';
+    syncTextElementHeightFromContent(item);
+  }
   if (item.type === 'text') item.text = dom.propText.value;
   recordHistorySnapshot();
   render();
@@ -2480,6 +2646,10 @@ function setupEvents() {
   dom.propFill.addEventListener('input', applyPropertyFromInputs);
   dom.propStroke.addEventListener('input', applyPropertyFromInputs);
   dom.propFontSize.addEventListener('input', applyPropertyFromInputs);
+  dom.propTextAlign?.addEventListener('change', applyPropertyFromInputs);
+  dom.propFontFamily?.addEventListener('change', applyPropertyFromInputs);
+  dom.propFontBold?.addEventListener('change', applyPropertyFromInputs);
+  dom.propFontItalic?.addEventListener('change', applyPropertyFromInputs);
   dom.propText.addEventListener('input', applyPropertyFromInputs);
   dom.snapThresholdInput?.addEventListener('input', (event) => {
     applySnapThreshold(event.target.value);
@@ -2521,8 +2691,9 @@ function setupEvents() {
     }
 
     if (activeTextEditor && event.key === 'Enter') {
-      if (isTextControl) return;
-      closeActiveTextEditor({ commit: true, rerender: false });
+      if (!isTextControl || (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)) {
+        closeActiveTextEditor({ commit: true, rerender: false });
+      }
       return;
     }
 

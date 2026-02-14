@@ -50,6 +50,33 @@
             <input id="prop-font-size" type="number" min="12" max="120" value="32" disabled />
           </label>
           <label>
+            <span>文字揃え</span>
+            <select id="prop-text-align" disabled>
+              <option value="start">左</option>
+              <option value="middle">中央</option>
+              <option value="end">右</option>
+            </select>
+          </label>
+          <label>
+            <span>フォント</span>
+            <select id="prop-font-family" disabled>
+              <option value="Arial, sans-serif">Arial</option>
+              <option value="Yu Gothic, sans-serif">Yu Gothic</option>
+              <option value="Hiragino Kaku Gothic ProN, sans-serif">Hiragino Kaku Gothic ProN</option>
+              <option value="Meiryo, sans-serif">メイリオ</option>
+              <option value="Times New Roman, serif">Times</option>
+              <option value="Courier New, monospace">Courier New</option>
+            </select>
+          </label>
+          <label class="checkbox-row">
+            <input id="prop-font-bold" type="checkbox" disabled />
+            <span>太字</span>
+          </label>
+          <label class="checkbox-row">
+            <input id="prop-font-italic" type="checkbox" disabled />
+            <span>斜体</span>
+          </label>
+          <label>
             テキスト
             <input id="prop-text" type="text" disabled placeholder="テキストを選択してください" />
           </label>
@@ -111,6 +138,7 @@
       </main>
     </div>
 
+    <script src="src/commands/elementCommands.js"></script>
     <script src="src/commands/alignSnap.js"></script>
     <script src="src/commands/history.js"></script>
     <script src="app.js" defer></script>

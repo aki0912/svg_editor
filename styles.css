@@ -308,6 +308,32 @@ input[type="color"]::-webkit-color-swatch {
   margin-top: 6px;
 }
 
+.properties select,
+.properties textarea {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 16px 0;
+}
+
+.checkbox-row input[type='checkbox'] {
+  margin: 0;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent-primary);
+}
+
+.checkbox-row span {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
 .snap-controls label {
   display: block;
   color: var(--text-secondary);
@@ -514,10 +540,28 @@ input[type="color"]::-webkit-color-swatch {
 }
 
 .snap-guide-line {
-  stroke: #f59e0b;
-  stroke-width: 1;
-  stroke-dasharray: 5 4;
+  stroke: #5eead4;
+  stroke-width: 1.5;
+  stroke-dasharray: 10 6;
   pointer-events: none;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 6px rgba(94, 234, 212, 0.45));
+}
+
+.snap-guide-line--dual {
+  stroke: #7dd3fc;
+  stroke-width: 2;
+  stroke-dasharray: 6 5;
+}
+
+.snap-guide-marker {
+  fill: #38bdf8;
+  stroke: #ffffff;
+  stroke-width: 2;
+  opacity: 0.95;
+  pointer-events: none;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.6));
 }
 
 #slide-title {
