@@ -375,6 +375,9 @@ function applyResizeSnap(next, handle, baseBounds) {
       snapped.width = Math.max(20, fixedRight - alignedLeft);
       guideX = alignedGuide;
       hasSnapX = true;
+    } else {
+      snapped.x = next.x;
+      snapped.width = Math.max(20, fixedRight - next.x);
     }
   }
 
@@ -420,6 +423,9 @@ function applyResizeSnap(next, handle, baseBounds) {
       snapped.height = Math.max(20, fixedBottom - alignedTop);
       guideY = alignedGuide;
       hasSnapY = true;
+    } else {
+      snapped.y = next.y;
+      snapped.height = Math.max(20, fixedBottom - next.y);
     }
   }
 
@@ -2219,11 +2225,11 @@ function onPointerMove(event) {
       element.height = next.height;
     }
 
-    if (h.includes('w') || h.includes('e') || element.type === 'text') {
-      if (element.type !== 'text') element.x = next.x;
+    if (h.includes('w') || h.includes('e')) {
+      element.x = next.x;
     }
     if (h.includes('n') || h.includes('s')) {
-      if (element.type !== 'text') element.y = next.y;
+      element.y = next.y;
     }
 
     render();
