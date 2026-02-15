@@ -7,6 +7,7 @@ const INLINE_TEXT_EDITOR_DRAG_GUTTER = 10;
 const SNAP_THRESHOLD_DEFAULT = 10;
 const SNAP_GUIDE_FADE_DURATION = 220;
 const SNAP_RESIZE_MIN_SIZE = 20;
+const SNAP_SIZE_MATCH_TOLERANCE = 0.5;
 const textCommands = typeof window !== 'undefined'
   && window.EditorElementCommands
   && typeof window.EditorElementCommands === 'object'
@@ -758,27 +759,118 @@ function getSnapThreshold() {
   return SNAP_THRESHOLD_DEFAULT;
 }
 
+function normalizeGuideValues(primaryGuide, extraGuides = []) {
+  const values = [];
+
+  if (Number.isFinite(primaryGuide)) {
+    values.push(primaryGuide);
+  }
+
+  if (Array.isArray(extraGuides)) {
+    extraGuides.forEach((value) => {
+      if (Number.isFinite(value)) values.push(value);
+    });
+  }
+
+  if (!values.length) return [];
+
+  const unique = [];
+  values.forEach((value) => {
+    if (!unique.some((item) => Math.abs(item - value) < 0.001)) {
+      unique.push(value);
+    }
+  });
+
+  return unique.sort((a, b) => a - b);
+}
+
+function isSameSizeForSnapGuide(baseSize, targetSize) {
+  if (!Number.isFinite(baseSize) || !Number.isFinite(targetSize)) return false;
+  return Math.abs(baseSize - targetSize) <= SNAP_SIZE_MATCH_TOLERANCE;
+}
+
+function findSnapTargetElement(elements, match) {
+  if (!match || match.targetSource !== 'element' || !match.targetElementId) return null;
+  const targetId = normalizeSelectionId(match.targetElementId);
+  return elements.find((item) => normalizeSelectionId(item.id) === targetId) || null;
+}
+
+function buildSameSizeSnapGuides(primaryGuide, size, match, targetSize) {
+  if (!Number.isFinite(primaryGuide) || !Number.isFinite(size) || size <= 0) return [];
+  if (!match || !isSameSizeForSnapGuide(size, targetSize)) return [];
+
+  const candidateEdge = match.candidateEdge;
+  const targetEdge = match.targetEdge;
+
+  if (candidateEdge === 'start' && targetEdge === 'start') {
+    return [primaryGuide + size];
+  }
+  if (candidateEdge === 'end' && targetEdge === 'end') {
+    return [primaryGuide - size];
+  }
+  if (candidateEdge === 'center' && targetEdge === 'center') {
+    return [primaryGuide - size / 2, primaryGuide + size / 2];
+  }
+
+  return [];
+}
+
 function applyMoveSnap(element, x, y, activeElementIds = [element?.id]) {
   if (!snapEngine) return { x, y };
 
   const slide = currentSlide();
   const excludedIds = new Set(Array.isArray(activeElementIds) ? activeElementIds : [activeElementIds]);
   const bounds = getElementBounds(element);
+  const width = Number.isFinite(bounds.width) ? bounds.width : Number.isFinite(element.width) ? element.width : 0;
+  const height = Number.isFinite(bounds.height) ? bounds.height : Number.isFinite(element.height) ? element.height : 0;
+  const snapTargets = slide.elements.filter((item) => !excludedIds.has(item.id));
   const result = snapEngine.snapMove({
     x,
     y,
-    width: Number.isFinite(bounds.width) ? bounds.width : Number.isFinite(element.width) ? element.width : 0,
-    height: Number.isFinite(bounds.height) ? bounds.height : Number.isFinite(element.height) ? element.height : 0,
-    elements: slide.elements.filter((item) => !excludedIds.has(item.id)),
+    width,
+    height,
+    elements: snapTargets,
     activeElementId: element.id,
     slideWidth: slide.width,
     slideHeight: slide.height,
     snapThreshold: getSnapThreshold(),
   });
 
+  const targetX = findSnapTargetElement(snapTargets, result.snapXMatch);
+  const targetY = findSnapTargetElement(snapTargets, result.snapYMatch);
+  const targetXBounds = targetX ? getElementBounds(targetX) : null;
+  const targetYBounds = targetY ? getElementBounds(targetY) : null;
+
+  const guideX = Number.isFinite(result.guideX) ? result.guideX : null;
+  const guideY = Number.isFinite(result.guideY) ? result.guideY : null;
+  const guideXs = result.hasSnapX
+    ? normalizeGuideValues(
+      guideX,
+      buildSameSizeSnapGuides(
+        guideX,
+        width,
+        result.snapXMatch,
+        Number.isFinite(targetXBounds?.width) ? targetXBounds.width : null,
+      ),
+    )
+    : [];
+  const guideYs = result.hasSnapY
+    ? normalizeGuideValues(
+      guideY,
+      buildSameSizeSnapGuides(
+        guideY,
+        height,
+        result.snapYMatch,
+        Number.isFinite(targetYBounds?.height) ? targetYBounds.height : null,
+      ),
+    )
+    : [];
+
   activeSnapGuide = {
-    guideX: Number.isFinite(result.guideX) ? result.guideX : null,
-    guideY: Number.isFinite(result.guideY) ? result.guideY : null,
+    guideX,
+    guideY,
+    guideXs,
+    guideYs,
     hasSnapX: !!result.hasSnapX,
     hasSnapY: !!result.hasSnapY,
   };
@@ -941,6 +1033,8 @@ function applyResizeSnap(next, handle, baseBounds) {
   activeSnapGuide = {
     guideX: Number.isFinite(guideX) ? guideX : null,
     guideY: Number.isFinite(guideY) ? guideY : null,
+    guideXs: hasSnapX ? normalizeGuideValues(guideX) : [],
+    guideYs: hasSnapY ? normalizeGuideValues(guideY) : [],
     hasSnapX,
     hasSnapY,
   };
@@ -2673,32 +2767,55 @@ function renderSnapGuides(slide) {
     guideClass.push('snap-guide-line--fade');
   }
 
+  const guideXs = Array.isArray(activeSnapGuide.guideXs) && activeSnapGuide.guideXs.length > 0
+    ? activeSnapGuide.guideXs
+    : Number.isFinite(activeSnapGuide.guideX)
+      ? [activeSnapGuide.guideX]
+      : [];
+  const guideYs = Array.isArray(activeSnapGuide.guideYs) && activeSnapGuide.guideYs.length > 0
+    ? activeSnapGuide.guideYs
+    : Number.isFinite(activeSnapGuide.guideY)
+      ? [activeSnapGuide.guideY]
+      : [];
+
   if (activeSnapGuide.hasSnapX) {
-    const guide = document.createElementNS(SVG_NS, 'line');
-    guide.setAttribute('x1', activeSnapGuide.guideX);
-    guide.setAttribute('y1', 0);
-    guide.setAttribute('x2', activeSnapGuide.guideX);
-    guide.setAttribute('y2', slide.height);
-    guide.setAttribute('vector-effect', 'non-scaling-stroke');
-    guide.classList.add(...guideClass);
-    dom.canvas.appendChild(guide);
+    guideXs.forEach((x) => {
+      const guide = document.createElementNS(SVG_NS, 'line');
+      guide.setAttribute('x1', x);
+      guide.setAttribute('y1', 0);
+      guide.setAttribute('x2', x);
+      guide.setAttribute('y2', slide.height);
+      guide.setAttribute('vector-effect', 'non-scaling-stroke');
+      guide.classList.add(...guideClass);
+      dom.canvas.appendChild(guide);
+    });
   }
 
   if (activeSnapGuide.hasSnapY) {
-    const guide = document.createElementNS(SVG_NS, 'line');
-    guide.setAttribute('x1', 0);
-    guide.setAttribute('y1', activeSnapGuide.guideY);
-    guide.setAttribute('x2', slide.width);
-    guide.setAttribute('y2', activeSnapGuide.guideY);
-    guide.setAttribute('vector-effect', 'non-scaling-stroke');
-    guide.classList.add(...guideClass);
-    dom.canvas.appendChild(guide);
+    guideYs.forEach((y) => {
+      const guide = document.createElementNS(SVG_NS, 'line');
+      guide.setAttribute('x1', 0);
+      guide.setAttribute('y1', y);
+      guide.setAttribute('x2', slide.width);
+      guide.setAttribute('y2', y);
+      guide.setAttribute('vector-effect', 'non-scaling-stroke');
+      guide.classList.add(...guideClass);
+      dom.canvas.appendChild(guide);
+    });
   }
 
   if (activeSnapGuide.hasSnapX && activeSnapGuide.hasSnapY) {
+    const markerX = Number.isFinite(activeSnapGuide.guideX)
+      ? activeSnapGuide.guideX
+      : guideXs[0];
+    const markerY = Number.isFinite(activeSnapGuide.guideY)
+      ? activeSnapGuide.guideY
+      : guideYs[0];
+    if (!Number.isFinite(markerX) || !Number.isFinite(markerY)) return;
+
     const marker = document.createElementNS(SVG_NS, 'circle');
-    marker.setAttribute('cx', activeSnapGuide.guideX);
-    marker.setAttribute('cy', activeSnapGuide.guideY);
+    marker.setAttribute('cx', markerX);
+    marker.setAttribute('cy', markerY);
     marker.setAttribute('r', 5);
     marker.setAttribute('vector-effect', 'non-scaling-stroke');
     marker.classList.add('snap-guide-marker', ...(activeSnapGuide.isFading ? ['snap-guide-marker--fade'] : []));

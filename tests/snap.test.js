@@ -66,6 +66,32 @@ describe('snap engine', () => {
     assert.equal(result.guideY, 360);
   });
 
+  it('includes edge metadata for element-to-element snap', () => {
+    const snap = createSnapEngine({ snapThreshold: 10 });
+    const result = snap.snapMove({
+      x: 100,
+      y: 104,
+      width: 50,
+      height: 40,
+      elements: [
+        { id: 'a', x: 30, y: 100, width: 80, height: 40 },
+      ],
+      slideWidth: 960,
+      slideHeight: 720,
+      activeElementId: 'target',
+    });
+
+    assert.equal(result.hasSnapY, true);
+    assert.equal(result.guideY, 100);
+    assert.deepEqual(result.snapYMatch, {
+      candidateEdge: 'start',
+      targetEdge: 'start',
+      targetSource: 'element',
+      targetElementId: 'a',
+      guide: 100,
+    });
+  });
+
   it('does not snap when threshold is 0', () => {
     const snap = createSnapEngine({ snapThreshold: 0 });
     const result = snap.snapMove({
