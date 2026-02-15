@@ -3862,7 +3862,7 @@ function alignSelectedElements(mode) {
       item.y = maxY - bounds.height;
     });
   } else if (mode === 'distribute-h') {
-    if (targets.length < 2) return;
+    if (targets.length < 3) return;
     const sorted = [...targets].sort((a, b) => a.bounds.x - b.bounds.x);
     const totalWidth = sorted.reduce((sum, entry) => sum + entry.bounds.width, 0);
     const gap = (maxX - minX - totalWidth) / (sorted.length - 1);
@@ -3874,7 +3874,7 @@ function alignSelectedElements(mode) {
       currentX += entry.bounds.width + gap;
     }
   } else if (mode === 'distribute-v') {
-    if (targets.length < 2) return;
+    if (targets.length < 3) return;
     const sorted = [...targets].sort((a, b) => a.bounds.y - b.bounds.y);
     const totalHeight = sorted.reduce((sum, entry) => sum + entry.bounds.height, 0);
     const gap = (maxY - minY - totalHeight) / (sorted.length - 1);
@@ -3944,6 +3944,7 @@ function renderProperties() {
 
   const hasSelection = selectedElements.length > 0;
   const canAlign = selectedElements.length >= 2;
+  const canDistribute = selectedElements.length >= 3;
   const isTextSelection = hasSelection && selectedElements.length === 1 && item?.type === 'text';
   const isLineSelection = hasSelection && selectedElements.length === 1 && (item?.type === 'line' || item?.type === 'arrow');
   const supportsFill = hasSelection && selectedElements.every((selected) => selected.type !== 'svg-fragment');
@@ -3994,8 +3995,8 @@ function renderProperties() {
   dom.alignTop.disabled = !canAlign;
   dom.alignMiddle.disabled = !canAlign;
   dom.alignBottom.disabled = !canAlign;
-  dom.alignDistributeH.disabled = !canAlign;
-  dom.alignDistributeV.disabled = !canAlign;
+  dom.alignDistributeH.disabled = !canDistribute;
+  dom.alignDistributeV.disabled = !canDistribute;
   dom.alignEqualWidth.disabled = !canAlign;
   dom.alignEqualHeight.disabled = !canAlign;
   dom.duplicateElement.disabled = !hasSelection;
