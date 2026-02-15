@@ -3,6 +3,7 @@ const HTML_NS = 'http://www.w3.org/1999/xhtml';
 const STORAGE_KEY = 'svg_ppt_like_state_v1';
 const SVG_IMPORT_PADDING_RATIO = 0;
 const TEXT_EDIT_DRAG_THRESHOLD = 4;
+const INLINE_TEXT_EDITOR_DRAG_GUTTER = 10;
 const SNAP_THRESHOLD_DEFAULT = 10;
 const SNAP_GUIDE_FADE_DURATION = 220;
 const SNAP_RESIZE_MIN_SIZE = 20;
@@ -2139,6 +2140,95 @@ function getTextCaretOffsetFromPoint(element, point) {
   return clamp(offset + Math.min(contentOffset, currentLineLength), 0, element.text.length);
 }
 
+function isPointOnRenderedTextContent(element, point) {
+  if (!element || element.type !== 'text') return false;
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return false;
+
+  normalizeTextElementProperties(element);
+  const lines = (element.text || '').split('\n');
+  if (!lines.length) return false;
+
+  const fontSize = normalizeTextFontSize(element.fontSize);
+  const lineHeight = getTextLineHeight(fontSize, normalizeTextLineSpacing(element.lineSpacing || TEXT_LINE_SPACING_DEFAULT));
+  const bulletType = normalizeTextBulletType(element.bulletType || TEXT_BULLET_DEFAULT);
+  const textIndent = normalizeTextIndent(element.textIndent || TEXT_INDENT_DEFAULT);
+  const letterSpacing = normalizeTextLetterSpacing(element.letterSpacing || TEXT_LETTER_SPACING_DEFAULT);
+  const textAlign = normalizeTextAlign(element.textAnchor || 'start');
+  const elementWidth = Number(element.width);
+  const baseX = textAlign === 'middle'
+    ? Number(element.x || 0) + (Number.isFinite(elementWidth) ? elementWidth / 2 : 0)
+    : textAlign === 'end'
+      ? Number(element.x || 0) + (Number.isFinite(elementWidth) ? elementWidth : 0)
+      : Number(element.x || 0);
+  const renderTopY = getTextRenderTopY(element, lineHeight);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const lineTop = renderTopY + (lineHeight * index);
+    const lineBottom = lineTop + lineHeight;
+    if (point.y < lineTop || point.y > lineBottom) continue;
+
+    const line = lines[index] || '';
+    const lineWidth = Math.max(1, getTextLineWidth(line, fontSize, {
+      ...element,
+      letterSpacing,
+      __lineIndex: index,
+      bulletType,
+    }));
+
+    let lineLeft = baseX + textIndent;
+    if (textAlign === 'middle') {
+      lineLeft -= lineWidth / 2;
+    } else if (textAlign === 'end') {
+      lineLeft -= lineWidth;
+    }
+    const lineRight = lineLeft + lineWidth;
+    if (point.x >= lineLeft && point.x <= lineRight) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function startInlineEditorDragIntent(event, elementId, element) {
+  if (!event || !element) return;
+  if (event.button !== undefined && event.button !== 0) return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  clearSnapGuideState();
+
+  state.pointerState = {
+    mode: 'editor-drag-intent',
+    elementId,
+    pointerId: event.pointerId,
+    start: getPointerPosition(event),
+    x: Number(element.x) || 0,
+    y: Number(element.y) || 0,
+  };
+
+  if (event.currentTarget && typeof event.currentTarget.setPointerCapture === 'function' && event.pointerId !== undefined) {
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // no-op
+    }
+  }
+}
+
+function isPointerNearTextareaEdge(event, threshold = INLINE_TEXT_EDITOR_DRAG_GUTTER) {
+  const target = event?.target;
+  if (!(target instanceof Element) || typeof target.getBoundingClientRect !== 'function') return false;
+  const rect = target.getBoundingClientRect();
+  if (!Number.isFinite(rect.width) || !Number.isFinite(rect.height) || rect.width <= 0 || rect.height <= 0) return false;
+
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  const right = rect.width - x;
+  const bottom = rect.height - y;
+  return x <= threshold || y <= threshold || right <= threshold || bottom <= threshold;
+}
+
 function syncTextElementHeightFromContent(element) {
   if (!element || element.type !== 'text') return;
   normalizeTextElementProperties(element);
@@ -2623,6 +2713,7 @@ function renderElement(el) {
 
   if (el.type === 'text') {
     normalizeTextElementProperties(el);
+    const textBounds = getElementBounds(el);
     const textAnchor = normalizeTextAlign(el.textAnchor || 'start');
     const fontSize = normalizeTextFontSize(el.fontSize);
     const baseX = Number(el.x) || 0;
@@ -2675,6 +2766,18 @@ function renderElement(el) {
     text.setAttribute('alignment-baseline', 'baseline');
     text.setAttribute('stroke', el.stroke || 'none');
     text.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 0);
+    text.dataset.textHitSource = 'content';
+
+    const hitArea = document.createElementNS(SVG_NS, 'rect');
+    hitArea.setAttribute('x', textBounds.x);
+    hitArea.setAttribute('y', textBounds.y);
+    hitArea.setAttribute('width', Math.max(1, textBounds.width));
+    hitArea.setAttribute('height', Math.max(1, textBounds.height));
+    hitArea.setAttribute('fill', 'transparent');
+    hitArea.setAttribute('pointer-events', 'all');
+    hitArea.dataset.textHitSource = 'box';
+    g.appendChild(hitArea);
+
     g.appendChild(text);
   }
 
@@ -3145,21 +3248,24 @@ function openTextEditorForElement(elementId, point = null) {
   const width = Math.max(1, Number(element.width) || 1);
   const initialHeight = Math.max(1, Number(element.height) || 1);
   const textLines = (element.text || '').split('\n');
+  const editorGutter = INLINE_TEXT_EDITOR_DRAG_GUTTER;
 
   const foreignObject = document.createElementNS(SVG_NS, 'foreignObject');
-  foreignObject.setAttribute('x', elementX);
-  foreignObject.setAttribute('y', elementY);
-  foreignObject.setAttribute('width', width);
-  foreignObject.setAttribute('height', initialHeight);
+  foreignObject.setAttribute('x', elementX - editorGutter);
+  foreignObject.setAttribute('y', elementY - editorGutter);
+  foreignObject.setAttribute('width', width + (editorGutter * 2));
+  foreignObject.setAttribute('height', initialHeight + (editorGutter * 2));
   foreignObject.setAttribute('data-inline-text-editor', '1');
 
   const host = document.createElementNS(HTML_NS, 'div');
   host.style.width = '100%';
   host.style.height = '100%';
   host.style.boxSizing = 'border-box';
+  host.style.padding = `${editorGutter}px`;
   host.style.outline = '2px solid var(--accent-primary)';
   host.style.outlineOffset = '-2px';
   host.style.borderRadius = '6px';
+  host.style.cursor = 'move';
   const editorLineSpacing = normalizeTextLineSpacing(element.lineSpacing);
   const editorLetterSpacing = normalizeTextLetterSpacing(element.letterSpacing);
   const editorTextIndent = normalizeTextIndent(element.textIndent);
@@ -3199,6 +3305,14 @@ function openTextEditorForElement(elementId, point = null) {
 
   textarea.addEventListener('pointerdown', (event) => {
     event.stopPropagation();
+    if (event.button === 2) return;
+
+    const shouldDragFromEdge = isPointerNearTextareaEdge(event);
+    const point = getPointerPosition(event);
+    const onTextContent = isPointOnRenderedTextContent(element, point);
+    if (!shouldDragFromEdge && onTextContent) return;
+
+    startInlineEditorDragIntent(event, elementId, element);
   });
 
   textarea.addEventListener('keydown', (event) => {
@@ -3213,6 +3327,11 @@ function openTextEditorForElement(elementId, point = null) {
 
   textarea.addEventListener('blur', () => {
     closeActiveTextEditor({ commit: true, rerender: true });
+  });
+
+  host.addEventListener('pointerdown', (event) => {
+    if (event.target === textarea) return;
+    startInlineEditorDragIntent(event, elementId, element);
   });
 
   host.appendChild(textarea);
@@ -3264,8 +3383,12 @@ function onElementPointerDown(event, elementId) {
 
   if (isShiftSelecting) return;
 
+  const target = event.target;
+  const targetSource = target && typeof target === 'object' && 'dataset' in target
+    ? target.dataset?.textHitSource
+    : undefined;
   const canEditText = isSingleSelectionText() && normalizeSelectionId(state.selectedElementId) === normalizeSelectionId(elementId);
-  if (element.type === 'text' && canEditText && !isShiftSelecting) {
+  if (element.type === 'text' && canEditText && !isShiftSelecting && targetSource !== 'box') {
     const start = getPointerPosition(event);
     state.pointerState = {
       mode: 'edit-intent',
@@ -3401,6 +3524,40 @@ function onPointerMove(event) {
     return;
   }
 
+  if (state.pointerState.mode === 'editor-drag-intent') {
+    const movedX = Math.abs(p.x - state.pointerState.start.x);
+    const movedY = Math.abs(p.y - state.pointerState.start.y);
+    clearSnapGuideState();
+    if (movedX > TEXT_EDIT_DRAG_THRESHOLD || movedY > TEXT_EDIT_DRAG_THRESHOLD) {
+      const pointerState = state.pointerState;
+      if (activeTextEditor && normalizeSelectionId(activeTextEditor.elementId) === normalizeSelectionId(pointerState.elementId)) {
+        closeActiveTextEditor({ commit: true, rerender: false });
+      }
+
+      const selectedElements = getSelectedElementElements();
+      const moveTargets = selectedElements
+        .map((item) => ({
+          id: item.id,
+          x: Number(item.x) || 0,
+          y: Number(item.y) || 0,
+        }));
+
+      state.pointerState = {
+        mode: 'move',
+        elementId: pointerState.elementId,
+        pointerId: pointerState.pointerId,
+        start: p,
+        activeIds: moveTargets.map((item) => item.id),
+        x: Number(element.x) || 0,
+        y: Number(element.y) || 0,
+        moveTargets,
+      };
+      render();
+      return;
+    }
+    return;
+  }
+
     const dx = p.x - state.pointerState.start.x;
   const dy = p.y - state.pointerState.start.y;
 
@@ -3499,6 +3656,14 @@ function onPointerUp(event) {
     const { elementId } = state.pointerState;
     state.pointerState = null;
     openTextEditorForElement(elementId, event ? getPointerPosition(event) : null);
+    return;
+  }
+
+  if (state.pointerState.mode === 'editor-drag-intent') {
+    state.pointerState = null;
+    if (activeTextEditor?.textarea) {
+      activeTextEditor.textarea.focus();
+    }
     return;
   }
 
