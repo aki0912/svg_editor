@@ -512,6 +512,7 @@ test('追加10: 要素複製ボタンと要素削除ボタンで件数が整合�
   const targetId = await getLastElementId(page);
   await clickElementCenter(page, targetId);
 
+  await expect(page.locator('#duplicate-element')).toBeEnabled();
   const beforeCount = (await getElementIds(page)).length;
   await page.locator('#duplicate-element').click();
   const afterDuplicateCount = (await getElementIds(page)).length;
@@ -544,6 +545,7 @@ test('追加12: 全部リセットで初期状態（1スライド、要素なし
   page.once('dialog', async (dialog) => {
     await dialog.accept();
   });
+  await page.locator('#file-menu-trigger').click();
   await page.locator('#reset-state').click();
 
   const jump = page.locator('#canvas-slide-jump');

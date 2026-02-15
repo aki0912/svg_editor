@@ -2919,7 +2919,7 @@ function isCanvasObjectInteractiveTarget(target) {
 
 function isSelectionProtectedTarget(target) {
   if (!(target instanceof Element)) return false;
-  return Boolean(target.closest('.properties') || target.closest('.object-actions'));
+  return Boolean(target.closest('.properties') || target.closest('.object-actions') || target.closest('.inspector-pane'));
 }
 
 function onCanvasPointerDownForDeselect(event) {
@@ -4456,6 +4456,33 @@ function setupEvents() {
       deleteElement();
     }
   });
+
+  // Dropdown menu toggle
+  const fileMenuTrigger = document.getElementById('file-menu-trigger');
+  const fileMenu = document.getElementById('file-menu');
+  if (fileMenuTrigger && fileMenu) {
+    fileMenuTrigger.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = fileMenu.classList.toggle('is-open');
+      fileMenuTrigger.setAttribute('aria-expanded', String(isOpen));
+    });
+    document.addEventListener('click', (e) => {
+      if (!fileMenu.contains(e.target)) {
+        fileMenu.classList.remove('is-open');
+        fileMenuTrigger.setAttribute('aria-expanded', 'false');
+      }
+    });
+    // Close dropdown when any menu item is clicked
+    const menuPanel = document.getElementById('file-menu-panel');
+    if (menuPanel) {
+      menuPanel.addEventListener('click', (e) => {
+        if (e.target.closest('.dropdown-item')) {
+          fileMenu.classList.remove('is-open');
+          fileMenuTrigger.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+  }
 }
 
 function bootstrap() {

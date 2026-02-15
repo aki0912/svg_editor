@@ -9,64 +9,114 @@
   </head>
   <body>
     <div class="app-shell pptx-layout">
-      <header class="top-ribbon">
-        <div class="ribbon-brand">
-          <h1>SVG Slide Editor</h1>
-          <p>PPTXスタイル編集レイアウト</p>
+      <header class="top-toolbar">
+        <div class="toolbar-brand">
+          <svg class="toolbar-brand-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3" y="3" width="18" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <polygon points="8,7 17,12 8,17" fill="currentColor" opacity="0.7"/>
+          </svg>
+          <span class="toolbar-brand-title">SVG Editor</span>
         </div>
 
-        <section class="panel ribbon-block slide-controls">
-          <h2>スライド</h2>
-          <div class="toolbar-group slide-action-buttons">
-            <button id="new-slide">新規</button>
-            <button id="duplicate-slide">複製</button>
-            <button id="delete-slide">削除</button>
-          </div>
-          <label class="slide-template-control">
-            <span>新規スライドの雛形</span>
+        <div class="toolbar-divider"></div>
+
+        <div class="toolbar-group slide-action-buttons">
+          <button id="new-slide" title="新規スライド">
+            <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <span class="btn-label">新規</span>
+          </button>
+          <button id="duplicate-slide" title="スライドを複製">
+            <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="5" width="10" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="7" y="3" width="10" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+            <span class="btn-label">複製</span>
+          </button>
+          <button id="delete-slide" title="スライドを削除">
+            <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 6h10M8 6V4.5a1 1 0 011-1h2a1 1 0 011 1V6m2 0v9.5a1.5 1.5 0 01-1.5 1.5h-5A1.5 1.5 0 016 15.5V6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <span class="btn-label">削除</span>
+          </button>
+          <label class="toolbar-select-wrap" title="新規スライドの雛形">
             <select id="slide-template">
-              <option value="blank">空白スライド</option>
+              <option value="blank">空白</option>
               <option value="title">タイトル</option>
               <option value="title-body">タイトル＋本文</option>
-              <option value="two-column">二列レイアウト</option>
+              <option value="two-column">二列</option>
             </select>
           </label>
-        </section>
+        </div>
 
-        <section class="panel ribbon-block object-controls">
-          <h2>挿入</h2>
-          <div class="toolbar-group">
-            <button id="add-text">テキスト</button>
-            <button id="add-rect">四角</button>
-            <button id="add-rounded-rect">角丸矩形</button>
-            <button id="add-circle">丸</button>
-            <button id="add-line">線</button>
-            <button id="add-arrow">矢印</button>
-            <button id="add-diamond">菱形</button>
-            <button id="add-image">画像</button>
-          </div>
-        </section>
+        <div class="toolbar-divider"></div>
 
-        <section class="panel ribbon-block actions">
-          <h2>入出力</h2>
-          <div class="actions-row actions-row-inline">
-            <span class="actions-label">JSON</span>
-            <button id="import-json-button" type="button" class="action-btn action-import">インポート</button>
-            <button id="export-json" class="action-btn action-export">エクスポート</button>
-            <input id="import-json" type="file" accept="application/json,.json" />
+        <div class="toolbar-group insert-tools">
+          <button id="add-text" class="icon-btn" title="テキスト">
+            <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M10 5v11M7 16h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+          <button id="add-rect" class="icon-btn" title="四角形">
+            <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+          </button>
+          <button id="add-rounded-rect" class="icon-btn" title="角丸矩形">
+            <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="12" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+          </button>
+          <button id="add-circle" class="icon-btn" title="円">
+            <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+          </button>
+          <button id="add-line" class="icon-btn" title="線">
+            <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><line x1="4" y1="16" x2="16" y2="4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          </button>
+          <button id="add-arrow" class="icon-btn" title="矢印">
+            <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><line x1="4" y1="16" x2="14" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><polyline points="9,5 15,5 15,11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button id="add-diamond" class="icon-btn" title="菱形">
+            <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><polygon points="10,3 17,10 10,17 3,10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+          </button>
+          <button id="add-image" class="icon-btn" title="画像">
+            <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="7" cy="8" r="1.5" fill="currentColor"/><path d="M3 14l4-4 3 3 2-2 5 5H4a1 1 0 01-1-1v-1z" fill="currentColor" opacity="0.4"/></svg>
+          </button>
+        </div>
+
+        <div class="toolbar-spacer"></div>
+
+        <div class="toolbar-group toolbar-end">
+          <div class="toolbar-dropdown" id="file-menu">
+            <button class="toolbar-dropdown-trigger" id="file-menu-trigger" title="ファイルメニュー" aria-expanded="false" aria-haspopup="true">
+              <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="4" r="1.5" fill="currentColor"/><circle cx="10" cy="10" r="1.5" fill="currentColor"/><circle cx="10" cy="16" r="1.5" fill="currentColor"/></svg>
+              <span class="btn-label">メニュー</span>
+            </button>
+            <div class="toolbar-dropdown-panel" id="file-menu-panel" role="menu">
+              <div class="dropdown-group">
+                <span class="dropdown-group-label">JSON</span>
+                <button id="import-json-button" type="button" class="dropdown-item" role="menuitem">
+                  <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 14l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="10" y1="7" x2="10" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                  JSONインポート
+                </button>
+                <button id="export-json" class="dropdown-item" role="menuitem">
+                  <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7l7 7 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="10" y1="14" x2="10" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                  JSONエクスポート
+                </button>
+              </div>
+              <div class="dropdown-group">
+                <span class="dropdown-group-label">SVG</span>
+                <button id="import-svg-button" type="button" class="dropdown-item" role="menuitem">
+                  <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 14l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="10" y1="7" x2="10" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                  SVGインポート
+                </button>
+                <button id="export-svg" class="dropdown-item" role="menuitem">
+                  <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M3 7l7 7 7-7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="10" y1="14" x2="10" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                  SVGエクスポート
+                </button>
+              </div>
+              <div class="dropdown-divider"></div>
+              <button id="reset-state" class="dropdown-item dropdown-item--danger" role="menuitem">
+                <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 4l12 12M16 4L4 16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                全部リセット
+              </button>
+            </div>
           </div>
-          <div class="actions-row actions-row-inline">
-            <span class="actions-label">SVG</span>
-            <button id="import-svg-button" type="button" class="action-btn action-import">インポート</button>
-            <button id="export-svg" class="action-btn action-export">エクスポート</button>
-            <input id="import-svg" type="file" accept=".svg,image/svg+xml" />
-          </div>
-          <button id="reset-state">全部リセット</button>
-        </section>
+          <input id="import-json" type="file" accept="application/json,.json" hidden />
+          <input id="import-svg" type="file" accept=".svg,image/svg+xml" hidden />
+        </div>
       </header>
 
       <aside class="slides-pane">
-        <h2>スライド一覧</h2>
+        <h2>スライド</h2>
         <div id="slide-overview" class="slide-overview" aria-label="スライド一覧（サムネイル）"></div>
       </aside>
 
@@ -74,14 +124,14 @@
         <header class="status-bar">
           <span id="slide-title"></span>
           <div class="history-controls" aria-label="履歴操作">
-            <button id="undo-action" type="button" class="history-btn" aria-label="Undo" title="Undo" disabled>
+            <button id="undo-action" type="button" class="history-btn" aria-label="元に戻す" title="元に戻す (Ctrl+Z)" disabled>
               <svg class="history-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M9 14L4 9l5-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
                 <path d="M4 9h11a4 4 0 1 1 0 8h-1" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
               </svg>
               <span class="visually-hidden">Undo</span>
             </button>
-            <button id="redo-action" type="button" class="history-btn" aria-label="Redo" title="Redo" disabled>
+            <button id="redo-action" type="button" class="history-btn" aria-label="やり直し" title="やり直し (Ctrl+Y)" disabled>
               <svg class="history-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="m15 14 5-5-5-5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
                 <path d="M20 9H9a4 4 0 1 0 0 8h1" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
@@ -90,11 +140,14 @@
             </button>
           </div>
           <div class="slide-nav-inline" aria-label="スライド切り替え">
-            <button id="canvas-prev-slide" type="button">◀</button>
+            <button id="canvas-prev-slide" type="button" title="前のスライド">◀</button>
             <select id="canvas-slide-jump" aria-label="スライド直接選択"></select>
-            <button id="canvas-next-slide" type="button">▶</button>
+            <button id="canvas-next-slide" type="button" title="次のスライド">▶</button>
           </div>
-          <span id="instructions">ドラッグして移動 • 端点で拡大縮小 • シングルクリックでテキストを直接編集</span>
+          <span id="instructions" class="status-hint" title="ドラッグして移動 • 端点で拡大縮小 • シングルクリックでテキストを直接編集">
+            <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 9v5M10 6.5v.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            ヒント
+          </span>
         </header>
 
         <section class="canvas-wrap">
@@ -103,110 +156,176 @@
       </main>
 
       <aside class="inspector-pane">
-        <section class="properties">
-          <h2>プロパティ</h2>
-          <label>
-            選択中要素
-            <input id="selected-label" type="text" value="" readonly />
-          </label>
-          <label>
-            <span id="prop-fill-label">塗りつぶし</span>
-            <input id="prop-fill" type="color" disabled />
-          </label>
-          <label>
-            <span id="prop-stroke-label">枠色</span>
-            <input id="prop-stroke" type="color" disabled />
-          </label>
-          <label id="prop-shape-rotation-row">
-            向き（度）
-            <input id="prop-shape-rotation" type="number" min="0" max="359" step="1" value="0" disabled />
-          </label>
-          <label id="prop-font-size-row">
-            フォントサイズ
-            <input id="prop-font-size" type="number" min="12" max="120" value="32" disabled />
-          </label>
-          <label id="prop-text-align-row">
-            <span>文字揃え</span>
-            <select id="prop-text-align" disabled>
-              <option value="start">左</option>
-              <option value="middle">中央</option>
-              <option value="end">右</option>
-            </select>
-          </label>
-          <label id="prop-font-family-row">
-            <span>フォント</span>
-            <select id="prop-font-family" disabled>
-              <option value="Arial, sans-serif">Arial</option>
-              <option value="Yu Gothic, sans-serif">Yu Gothic</option>
-              <option value="Hiragino Kaku Gothic ProN, sans-serif">Hiragino Kaku Gothic ProN</option>
-              <option value="Meiryo, sans-serif">メイリオ</option>
-              <option value="Times New Roman, serif">Times</option>
-              <option value="Courier New, monospace">Courier New</option>
-            </select>
-          </label>
-          <label id="prop-font-bold-row" class="checkbox-row">
-            <input id="prop-font-bold" type="checkbox" disabled />
-            <span>太字</span>
-          </label>
-          <label id="prop-font-italic-row" class="checkbox-row">
-            <input id="prop-font-italic" type="checkbox" disabled />
-            <span>斜体</span>
-          </label>
-          <label id="prop-text-line-spacing-row">
-            行間
-            <input id="prop-text-line-spacing" type="number" min="0.6" max="3" step="0.1" value="1.3" disabled />
-          </label>
-          <label id="prop-text-letter-spacing-row">
-            字間
-            <input id="prop-text-letter-spacing" type="number" min="-1" max="20" step="0.1" value="0" disabled />
-          </label>
-          <label id="prop-text-indent-row">
-            インデント
-            <input id="prop-text-indent" type="number" min="-200" max="300" step="1" value="0" disabled />
-          </label>
-          <label id="prop-text-bullet-row">
-            箇条書き
-            <select id="prop-text-bullet" disabled>
-              <option value="none">なし</option>
-              <option value="bullet">箇条書き</option>
-              <option value="number">番号付き</option>
-            </select>
-          </label>
-          <label id="prop-text-row">
-            テキスト
-            <input id="prop-text" type="text" disabled placeholder="テキストを選択してください" />
-          </label>
-        </section>
+        <details class="inspector-section" open>
+          <summary class="inspector-section-header">外観</summary>
+          <div class="inspector-section-body">
+            <label>
+              選択中要素
+              <input id="selected-label" type="text" value="" readonly />
+            </label>
+            <div class="prop-row-2col">
+              <label class="prop-compact">
+                <span id="prop-fill-label">塗り</span>
+                <input id="prop-fill" type="color" disabled />
+              </label>
+              <label class="prop-compact">
+                <span id="prop-stroke-label">枠色</span>
+                <input id="prop-stroke" type="color" disabled />
+              </label>
+            </div>
+            <label id="prop-shape-rotation-row">
+              回転 (°)
+              <input id="prop-shape-rotation" type="number" min="0" max="359" step="1" value="0" disabled />
+            </label>
+          </div>
+        </details>
 
-        <section class="panel object-actions">
-          <h2>オブジェクト操作</h2>
-          <div class="toolbar-group small">
-            <button id="bring-front" disabled>前面へ</button>
-            <button id="send-back" disabled>背面へ</button>
+        <details class="inspector-section" open>
+          <summary class="inspector-section-header">テキスト</summary>
+          <div class="inspector-section-body">
+            <div class="prop-row-2col">
+              <label id="prop-font-size-row" class="prop-compact">
+                サイズ
+                <input id="prop-font-size" type="number" min="12" max="120" value="32" disabled />
+              </label>
+              <label id="prop-text-align-row" class="prop-compact">
+                <span>揃え</span>
+                <select id="prop-text-align" disabled>
+                  <option value="start">左</option>
+                  <option value="middle">中央</option>
+                  <option value="end">右</option>
+                </select>
+              </label>
+            </div>
+            <label id="prop-font-family-row">
+              <span>フォント</span>
+              <select id="prop-font-family" disabled>
+                <option value="Arial, sans-serif">Arial</option>
+                <option value="Yu Gothic, sans-serif">Yu Gothic</option>
+                <option value="Hiragino Kaku Gothic ProN, sans-serif">Hiragino Kaku Gothic ProN</option>
+                <option value="Meiryo, sans-serif">メイリオ</option>
+                <option value="Times New Roman, serif">Times</option>
+                <option value="Courier New, monospace">Courier New</option>
+              </select>
+            </label>
+            <div class="prop-row-inline">
+              <label id="prop-font-bold-row" class="checkbox-row">
+                <input id="prop-font-bold" type="checkbox" disabled />
+                <span>太字</span>
+              </label>
+              <label id="prop-font-italic-row" class="checkbox-row">
+                <input id="prop-font-italic" type="checkbox" disabled />
+                <span>斜体</span>
+              </label>
+            </div>
+            <label id="prop-text-row">
+              テキスト
+              <input id="prop-text" type="text" disabled placeholder="テキストを選択してください" />
+            </label>
           </div>
-          <div class="toolbar-group small">
-            <button id="align-left" disabled>左揃え</button>
-            <button id="align-center" disabled>中央揃え</button>
-            <button id="align-right" disabled>右揃え</button>
+        </details>
+
+        <details class="inspector-section">
+          <summary class="inspector-section-header">段落</summary>
+          <div class="inspector-section-body">
+            <div class="prop-row-2col">
+              <label id="prop-text-line-spacing-row" class="prop-compact">
+                行間
+                <input id="prop-text-line-spacing" type="number" min="0.6" max="3" step="0.1" value="1.3" disabled />
+              </label>
+              <label id="prop-text-letter-spacing-row" class="prop-compact">
+                字間
+                <input id="prop-text-letter-spacing" type="number" min="-1" max="20" step="0.1" value="0" disabled />
+              </label>
+            </div>
+            <label id="prop-text-indent-row">
+              インデント
+              <input id="prop-text-indent" type="number" min="-200" max="300" step="1" value="0" disabled />
+            </label>
+            <label id="prop-text-bullet-row">
+              箇条書き
+              <select id="prop-text-bullet" disabled>
+                <option value="none">なし</option>
+                <option value="bullet">箇条書き</option>
+                <option value="number">番号付き</option>
+              </select>
+            </label>
           </div>
-          <div class="toolbar-group small">
-            <button id="align-top" disabled>上揃え</button>
-            <button id="align-middle" disabled>中央揃え</button>
-            <button id="align-bottom" disabled>下揃え</button>
+        </details>
+
+        <details class="inspector-section" open>
+          <summary class="inspector-section-header">配置</summary>
+          <div class="inspector-section-body">
+            <div class="align-grid">
+              <span class="align-grid-label">水平</span>
+              <button id="align-left" class="icon-btn" disabled title="左揃え">
+                <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><line x1="3" y1="3" x2="3" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="6" y="5" width="10" height="3" rx="0.5" fill="currentColor"/><rect x="6" y="11" width="6" height="3" rx="0.5" fill="currentColor"/></svg>
+              </button>
+              <button id="align-center" class="icon-btn" disabled title="中央揃え">
+                <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><line x1="10" y1="3" x2="10" y2="17" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 2"/><rect x="4" y="5" width="12" height="3" rx="0.5" fill="currentColor"/><rect x="6" y="11" width="8" height="3" rx="0.5" fill="currentColor"/></svg>
+              </button>
+              <button id="align-right" class="icon-btn" disabled title="右揃え">
+                <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><line x1="17" y1="3" x2="17" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="4" y="5" width="10" height="3" rx="0.5" fill="currentColor"/><rect x="8" y="11" width="6" height="3" rx="0.5" fill="currentColor"/></svg>
+              </button>
+            </div>
+            <div class="align-grid">
+              <span class="align-grid-label">垂直</span>
+              <button id="align-top" class="icon-btn" disabled title="上揃え">
+                <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><line x1="3" y1="3" x2="17" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="5" y="6" width="3" height="10" rx="0.5" fill="currentColor"/><rect x="11" y="6" width="3" height="6" rx="0.5" fill="currentColor"/></svg>
+              </button>
+              <button id="align-middle" class="icon-btn" disabled title="中央揃え (垂直)">
+                <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><line x1="3" y1="10" x2="17" y2="10" stroke="currentColor" stroke-width="1.2" stroke-dasharray="2 2"/><rect x="5" y="4" width="3" height="12" rx="0.5" fill="currentColor"/><rect x="11" y="6" width="3" height="8" rx="0.5" fill="currentColor"/></svg>
+              </button>
+              <button id="align-bottom" class="icon-btn" disabled title="下揃え">
+                <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><line x1="3" y1="17" x2="17" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><rect x="5" y="4" width="3" height="10" rx="0.5" fill="currentColor"/><rect x="11" y="8" width="3" height="6" rx="0.5" fill="currentColor"/></svg>
+              </button>
+            </div>
+            <div class="align-grid">
+              <span class="align-grid-label">分布</span>
+              <button id="align-distribute-h" class="icon-btn" disabled title="横均等配置">
+                <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="2" y="6" width="3" height="8" rx="0.5" fill="currentColor"/><rect x="8.5" y="6" width="3" height="8" rx="0.5" fill="currentColor"/><rect x="15" y="6" width="3" height="8" rx="0.5" fill="currentColor"/></svg>
+              </button>
+              <button id="align-distribute-v" class="icon-btn" disabled title="縦均等配置">
+                <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="6" y="2" width="8" height="3" rx="0.5" fill="currentColor"/><rect x="6" y="8.5" width="8" height="3" rx="0.5" fill="currentColor"/><rect x="6" y="15" width="8" height="3" rx="0.5" fill="currentColor"/></svg>
+              </button>
+            </div>
+            <div class="align-grid">
+              <span class="align-grid-label">サイズ</span>
+              <button id="align-equal-width" class="icon-btn" disabled title="同じ幅に揃える">
+                <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="6" width="14" height="3" rx="0.5" fill="currentColor"/><rect x="3" y="11" width="14" height="3" rx="0.5" fill="currentColor"/></svg>
+              </button>
+              <button id="align-equal-height" class="icon-btn" disabled title="同じ高さに揃える">
+                <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="6" y="3" width="3" height="14" rx="0.5" fill="currentColor"/><rect x="11" y="3" width="3" height="14" rx="0.5" fill="currentColor"/></svg>
+              </button>
+            </div>
           </div>
-          <div class="toolbar-group small">
-            <button id="align-distribute-h" disabled>横均等配置</button>
-            <button id="align-distribute-v" disabled>縦均等配置</button>
+        </details>
+
+        <details class="inspector-section" open>
+          <summary class="inspector-section-header">操作</summary>
+          <div class="inspector-section-body">
+            <div class="action-btn-row">
+              <button id="bring-front" class="action-btn-sm" disabled title="前面へ移動">
+                <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="6" y="6" width="10" height="10" rx="1" fill="currentColor" opacity="0.3"/><rect x="4" y="4" width="10" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 2v4M8 4l2-2 2 2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                前面へ
+              </button>
+              <button id="send-back" class="action-btn-sm" disabled title="背面へ移動">
+                <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="4" y="4" width="10" height="10" rx="1" fill="currentColor" opacity="0.3"/><rect x="6" y="6" width="10" height="10" rx="1" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 18v-4M8 16l2 2 2-2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                背面へ
+              </button>
+            </div>
+            <div class="action-btn-row">
+              <button id="duplicate-element" class="action-btn-sm" disabled title="要素を複製 (Ctrl+D)">
+                <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="5" width="10" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="7" y="3" width="10" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+                複製
+              </button>
+              <button id="delete-element" class="action-btn-sm action-btn-sm--danger" disabled title="要素を削除 (Delete)">
+                <svg class="btn-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 6h10M8 6V4.5a1 1 0 011-1h2a1 1 0 011 1V6m2 0v9.5a1.5 1.5 0 01-1.5 1.5h-5A1.5 1.5 0 016 15.5V6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+                削除
+              </button>
+            </div>
           </div>
-          <div class="toolbar-group small">
-            <button id="align-equal-width" disabled>同幅</button>
-            <button id="align-equal-height" disabled>同高</button>
-          </div>
-          <div class="toolbar-group small">
-            <button id="duplicate-element" disabled>要素複製</button>
-            <button id="delete-element" disabled>要素削除</button>
-          </div>
-        </section>
+        </details>
       </aside>
     </div>
 

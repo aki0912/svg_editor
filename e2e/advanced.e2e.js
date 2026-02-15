@@ -106,6 +106,7 @@ test.beforeEach(async ({ page }) => {
 
 test('A-101: JSONエクスポートで有効なデータ構造がダウンロードされる', async ({ page }) => {
   await page.locator('#add-rect').click();
+  await page.locator('#file-menu-trigger').click();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     page.locator('#export-json').click(),
@@ -190,6 +191,7 @@ test('A-103: SVGインポートでテキスト要素が反映される', async (
 
 test('A-104: SVGエクスポートでtext要素を含む', async ({ page }) => {
   await page.locator('#add-text').click();
+  await page.locator('#file-menu-trigger').click();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     page.locator('#export-svg').click(),
