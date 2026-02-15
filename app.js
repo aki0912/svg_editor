@@ -128,6 +128,7 @@ let snapGuideFadeTimer = null;
 let clipboardElements = [];
 let clipboardPasteOffset = 20;
 let canvasViewportFitFrame = null;
+let canvasDragDepth = 0;
 
 const dom = {
   slideOverview: document.getElementById('slide-overview'),
@@ -3797,6 +3798,21 @@ function closeTextEditorForGlobalShortcut() {
   }
 }
 
+function selectAllElementsOnCurrentSlide() {
+  const slide = currentSlide();
+  if (!slide || !Array.isArray(slide.elements)) return;
+
+  const allIds = slide.elements
+    .map((item) => item?.id)
+    .filter((id) => id !== null && id !== undefined);
+  setSelectedElementIds(allIds);
+
+  if (state.pointerState) {
+    state.pointerState = null;
+  }
+  render();
+}
+
 function setZOrder(direction) {
   const primaryId = getPrimarySelectedElementId();
   if (!primaryId) return;
@@ -4212,6 +4228,41 @@ function importSVGFromInput(file) {
   reader.readAsText(file);
 }
 
+function isSvgFile(file) {
+  if (!file) return false;
+  const fileType = typeof file.type === 'string' ? file.type : '';
+  const fileName = typeof file.name === 'string' ? file.name.toLowerCase() : '';
+  return /svg|xml/i.test(fileType) || fileName.endsWith('.svg');
+}
+
+function getDroppedFiles(dataTransfer) {
+  if (!dataTransfer) return [];
+  if (dataTransfer.files && dataTransfer.files.length > 0) {
+    return Array.from(dataTransfer.files);
+  }
+  if (dataTransfer.items && dataTransfer.items.length > 0) {
+    return Array.from(dataTransfer.items)
+      .map((item) => (item.kind === 'file' ? item.getAsFile() : null))
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function hasFilePayload(dataTransfer) {
+  if (!dataTransfer || !dataTransfer.types) return false;
+  return Array.from(dataTransfer.types).includes('Files');
+}
+
+function setCanvasDropActive(isActive) {
+  if (!dom.canvas) return;
+  dom.canvas.classList.toggle('canvas-drop-active', !!isActive);
+}
+
+function clearCanvasDropState() {
+  canvasDragDepth = 0;
+  setCanvasDropActive(false);
+}
+
 function exportSVG() {
   const slide = currentSlide();
   const svg = dom.canvas.cloneNode(true);
@@ -4361,11 +4412,51 @@ function setupEvents() {
   dom.canvas.addEventListener('pointerdown', onCanvasPointerDownForDeselect);
   dom.canvas.addEventListener('pointerup', onPointerUp);
   dom.canvas.addEventListener('pointercancel', onPointerUp);
+  dom.canvas.addEventListener('dragenter', (event) => {
+    if (!hasFilePayload(event.dataTransfer)) return;
+    event.preventDefault();
+    canvasDragDepth += 1;
+    setCanvasDropActive(true);
+  });
+  dom.canvas.addEventListener('dragover', (event) => {
+    if (!hasFilePayload(event.dataTransfer)) return;
+    event.preventDefault();
+    if (event.dataTransfer) {
+      event.dataTransfer.dropEffect = 'copy';
+    }
+    setCanvasDropActive(true);
+  });
+  dom.canvas.addEventListener('dragleave', (event) => {
+    if (!hasFilePayload(event.dataTransfer)) return;
+    event.preventDefault();
+    canvasDragDepth = Math.max(0, canvasDragDepth - 1);
+    if (canvasDragDepth === 0) {
+      setCanvasDropActive(false);
+    }
+  });
+  dom.canvas.addEventListener('drop', (event) => {
+    if (!hasFilePayload(event.dataTransfer)) return;
+    event.preventDefault();
+    clearCanvasDropState();
+    if (activeTextEditor) {
+      closeActiveTextEditor({ commit: true, rerender: false });
+    }
+    const droppedFiles = getDroppedFiles(event.dataTransfer);
+    const svgFile = droppedFiles.find(isSvgFile);
+    if (!svgFile) {
+      if (droppedFiles.length > 0) {
+        alert('SVGファイル(.svg)をドロップしてください');
+      }
+      return;
+    }
+    importSVGFromInput(svgFile);
+  });
 
   window.addEventListener('pointerup', onPointerUp);
   window.addEventListener('pointerdown', onCanvasPointerDownForDeselect);
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('resize', scheduleCanvasViewportFit);
+  window.addEventListener('dragend', clearCanvasDropState);
 
   window.addEventListener('keydown', (event) => {
     const targetTag = document.activeElement?.tagName?.toLowerCase();
@@ -4378,6 +4469,8 @@ function setupEvents() {
     const isCopyShortcut = isShortcut && !isTextControl && key === 'c' && !event.altKey;
     const isCutShortcut = isShortcut && !isTextControl && key === 'x' && !event.altKey;
     const isPasteShortcut = isShortcut && !isTextControl && key === 'v' && !event.altKey;
+    const isDuplicateShortcut = isShortcut && !isTextControl && key === 'd' && !event.shiftKey && !event.altKey;
+    const isSelectAllShortcut = isShortcut && !isTextControl && key === 'a' && !event.shiftKey && !event.altKey;
     const isDeleteShortcut = !isTextControl && (event.key === 'Delete' || event.key === 'Backspace');
 
     if (isUndoShortcut) {
@@ -4422,6 +4515,20 @@ function setupEvents() {
       event.preventDefault();
       closeTextEditorForGlobalShortcut();
       pasteElementFromClipboard();
+      return;
+    }
+
+    if (isDuplicateShortcut) {
+      event.preventDefault();
+      closeTextEditorForGlobalShortcut();
+      duplicateElement();
+      return;
+    }
+
+    if (isSelectAllShortcut) {
+      event.preventDefault();
+      closeTextEditorForGlobalShortcut();
+      selectAllElementsOnCurrentSlide();
       return;
     }
 
