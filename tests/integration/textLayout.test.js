@@ -156,4 +156,24 @@ describe('text layout integration (T-001 ~ T-010)', () => {
     assert.equal(number[1].displayText, '2. 項目B');
     assert.equal(number[1].textIndent, 24);
   });
+
+  it('T-011 text-anchor middle/end のx座標を内部左基準へ正規化し、SVG出力で元のアンカーへ戻せる', () => {
+    const svg = `
+      <svg>
+        <text id="m" x="300" y="160" width="120" font-size="32" text-anchor="middle">中央</text>
+        <text id="e" x="500" y="220" width="140" font-size="32" text-anchor="end">右寄せ</text>
+      </svg>
+    `;
+    const imported = parseSvgTextElements(svg);
+    const byId = new Map(imported.map((item) => [item.sourceId, item]));
+
+    assertNear(byId.get('m').x, 240);
+    assertNear(byId.get('e').x, 360);
+
+    const exported = roundtripTextElements(svg, { width: 960, height: 540 }).exported;
+    assert.equal(exported.includes('id="m"'), true);
+    assert.equal(exported.includes('x="300"'), true);
+    assert.equal(exported.includes('id="e"'), true);
+    assert.equal(exported.includes('x="500"'), true);
+  });
 });

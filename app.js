@@ -262,6 +262,16 @@ function normalizeTextAlign(value) {
   return 'start';
 }
 
+function convertTextAnchorXToElementX(anchorX, width, textAnchor = 'start') {
+  const normalizedAnchor = normalizeTextAlign(textAnchor);
+  const safeAnchorX = Number(anchorX) || 0;
+  const safeWidth = Math.max(0, Number(width) || 0);
+
+  if (normalizedAnchor === 'middle') return safeAnchorX - (safeWidth / 2);
+  if (normalizedAnchor === 'end') return safeAnchorX - safeWidth;
+  return safeAnchorX;
+}
+
 function normalizeTextDominantBaseline(value) {
   const normalized = String(value || 'auto').toLowerCase().trim();
   if (!normalized || normalized === 'auto' || normalized === 'baseline' || normalized === 'alphabetic') {
@@ -1738,9 +1748,16 @@ function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
       sampleText: text,
     });
 
+    const spanTextAnchor = getNodeStyleValue(span, 'text-anchor', baseTextAnchor, svgRoot);
+    const anchorAdjustedX = convertTextAnchorXToElementX(
+      x + transformOffset.x,
+      estimatedWidth,
+      spanTextAnchor,
+    );
+
     elements.push({
       type: 'text',
-      x,
+      x: anchorAdjustedX,
       y: topY,
       width: estimatedWidth,
       height: estimatedHeight,
@@ -1750,7 +1767,7 @@ function parseTSpanAsTextLines(node, svgRoot, transformOffset) {
       fontWeight,
       fontStyle,
       fill,
-      textAnchor: getNodeStyleValue(span, 'text-anchor', baseTextAnchor, svgRoot),
+      textAnchor: spanTextAnchor,
       dominantBaseline: normalizedDominantBaseline,
       alignmentBaseline: normalizedAlignmentBaseline,
       stroke,
@@ -1959,7 +1976,8 @@ function parseSVGElements(svgRoot) {
         fontWeight,
         fontStyle,
       });
-      const x = parseNumber(getNodeStyleValue(node, 'x', 0, svgRoot), 0) + transformOffset.x;
+      const textAnchor = getNodeStyleValue(node, 'text-anchor', 'start', svgRoot);
+      const anchorX = parseNumber(getNodeStyleValue(node, 'x', 0, svgRoot), 0) + transformOffset.x;
       const y = parseNumber(getNodeStyleValue(node, 'y', 0, svgRoot), 0) + transformOffset.y;
       const sourceDominantBaseline = getNodeStyleValue(node, 'dominant-baseline', 'auto', svgRoot);
       const normalizedDominantBaseline = normalizeTextDominantBaseline(sourceDominantBaseline);
@@ -1967,21 +1985,22 @@ function parseSVGElements(svgRoot) {
         getNodeStyleValue(node, 'alignment-baseline', 'auto', svgRoot),
         normalizedDominantBaseline,
       );
+      const width = Math.max(40, estimatedMetrics.width);
       parsed.push({
         type: 'text',
-        x,
+        x: convertTextAnchorXToElementX(anchorX, width, textAnchor),
         y: convertSvgTextYToTop(y, fontSize, sourceDominantBaseline, {
           fontFamily,
           fontWeight,
           fontStyle,
           sampleText: text,
         }),
-        width: Math.max(40, estimatedMetrics.width),
+        width,
         height: Math.max(12, estimatedMetrics.height),
         text,
         fontSize,
         fontFamily,
-        textAnchor: getNodeStyleValue(node, 'text-anchor', 'start', svgRoot),
+        textAnchor,
         dominantBaseline: normalizedDominantBaseline,
         alignmentBaseline: normalizedAlignmentBaseline,
         fontWeight,

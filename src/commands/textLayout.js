@@ -87,6 +87,24 @@ function normalizeTextAnchor(value) {
   return 'start';
 }
 
+function convertAnchorXToElementX(anchorX, width, textAnchor = 'start') {
+  const normalizedAnchor = normalizeTextAnchor(textAnchor);
+  const safeAnchorX = toNumber(anchorX, 0);
+  const safeWidth = Math.max(0, toNumber(width, 0));
+  if (normalizedAnchor === 'middle') return safeAnchorX - (safeWidth / 2);
+  if (normalizedAnchor === 'end') return safeAnchorX - safeWidth;
+  return safeAnchorX;
+}
+
+function convertElementXToAnchorX(elementX, width, textAnchor = 'start') {
+  const normalizedAnchor = normalizeTextAnchor(textAnchor);
+  const safeElementX = toNumber(elementX, 0);
+  const safeWidth = Math.max(0, toNumber(width, 0));
+  if (normalizedAnchor === 'middle') return safeElementX + (safeWidth / 2);
+  if (normalizedAnchor === 'end') return safeElementX + safeWidth;
+  return safeElementX;
+}
+
 function resolveBaseline(dominantBaseline, alignmentBaseline) {
   const dominant = normalizeBaseline(dominantBaseline, '');
   if (dominant) return dominant;
@@ -192,13 +210,14 @@ function parseSvgTextElements(svgString = '') {
 
     const width = toNumber(attrs.width, estimateTextWidth(text, fontSize));
     const height = toNumber(attrs.height, estimateTextHeight(text, fontSize, lineSpacing));
+    const elementX = convertAnchorXToElementX(textX, width, textAnchor);
 
     index += 1;
     elements.push({
       id: toNonEmptyString(attrs['data-id'] || attrs.id, `text-${index}`),
       sourceId: toNonEmptyString(attrs.id, ''),
       type: 'text',
-      x: textX,
+      x: elementX,
       y: textTop,
       width,
       height,
@@ -271,9 +290,11 @@ function exportTextElementsToSvg(elements = [], options = {}) {
     const lineHeight = getTextLineHeight(fontSize, lineSpacing);
     const lines = String(element.text ?? '').split('\n');
     const textId = toNonEmptyString(element.sourceId || element.id, '');
+    const width = toNumber(element.width, estimateTextWidth(element.text, fontSize));
+    const anchorX = convertElementXToAnchorX(element.x, width, textAnchor);
 
     const attrs = [
-      `x="${formatNumber(element.x)}"`,
+      `x="${formatNumber(anchorX)}"`,
       `y="${formatNumber(baselineY)}"`,
       `font-size="${formatNumber(fontSize)}"`,
       `font-family="${escapeXml(normalizeFontFamily(element.fontFamily))}"`,
@@ -286,7 +307,7 @@ function exportTextElementsToSvg(elements = [], options = {}) {
       `data-line-spacing="${formatNumber(lineSpacing)}"`,
       `letter-spacing="${formatNumber(toNumber(element.letterSpacing, 0))}"`,
       `text-indent="${formatNumber(toNumber(element.textIndent, 0))}"`,
-      `width="${formatNumber(toNumber(element.width, estimateTextWidth(element.text, fontSize)))}"`,
+      `width="${formatNumber(width)}"`,
       `height="${formatNumber(toNumber(element.height, estimateTextHeight(element.text, fontSize, lineSpacing)))}"`,
     ];
     if (textId) attrs.push(`id="${escapeXml(textId)}"`);
@@ -299,9 +320,9 @@ function exportTextElementsToSvg(elements = [], options = {}) {
 
     const tspans = lines.map((line, index) => {
       if (index === 0) {
-        return `<tspan x="${formatNumber(element.x)}">${escapeXml(line)}</tspan>`;
+        return `<tspan x="${formatNumber(anchorX)}">${escapeXml(line)}</tspan>`;
       }
-      return `<tspan x="${formatNumber(element.x)}" dy="${formatNumber(lineHeight)}">${escapeXml(line)}</tspan>`;
+      return `<tspan x="${formatNumber(anchorX)}" dy="${formatNumber(lineHeight)}">${escapeXml(line)}</tspan>`;
     }).join('');
     nodes.push(`<text ${attrs.join(' ')}>${tspans}</text>`);
   }
