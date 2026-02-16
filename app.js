@@ -976,10 +976,16 @@ function applyMoveSnap(element, x, y, activeElementIds = [element?.id]) {
   };
 }
 
-function applyResizeSnap(next, handle, baseBounds) {
+function applyResizeSnap(next, handle, baseBounds, activeElementIds = [state.pointerState?.elementId]) {
   if (!snapEngine) return next;
 
   const slide = currentSlide();
+  const excludedIds = new Set(
+    (Array.isArray(activeElementIds) ? activeElementIds : [activeElementIds])
+      .map((id) => normalizeSelectionId(id))
+      .filter((id) => id !== null),
+  );
+  const snapTargets = slide.elements.filter((item) => !excludedIds.has(normalizeSelectionId(item.id)));
   const hasMoveLeft = handle.includes('w');
   const hasMoveRight = handle.includes('e');
   const hasMoveTop = handle.includes('n');
@@ -1027,7 +1033,7 @@ function applyResizeSnap(next, handle, baseBounds) {
       y: next.y,
       width: 0,
       height: next.height,
-      elements: slide.elements,
+      elements: snapTargets,
       activeElementId: state.pointerState.elementId,
       slideWidth: slide.width,
       slideHeight: slide.height,
@@ -1051,7 +1057,7 @@ function applyResizeSnap(next, handle, baseBounds) {
       y: next.y,
       width: 0,
       height: next.height,
-      elements: slide.elements,
+      elements: snapTargets,
       activeElementId: state.pointerState.elementId,
       slideWidth: slide.width,
       slideHeight: slide.height,
@@ -1074,7 +1080,7 @@ function applyResizeSnap(next, handle, baseBounds) {
       y: next.y,
       width: next.width,
       height: 0,
-      elements: slide.elements,
+      elements: snapTargets,
       activeElementId: state.pointerState.elementId,
       slideWidth: slide.width,
       slideHeight: slide.height,
@@ -1098,7 +1104,7 @@ function applyResizeSnap(next, handle, baseBounds) {
       y: bottomEdge,
       width: next.width,
       height: 0,
-      elements: slide.elements,
+      elements: snapTargets,
       activeElementId: state.pointerState.elementId,
       slideWidth: slide.width,
       slideHeight: slide.height,
@@ -1135,6 +1141,67 @@ function applyResizeSnap(next, handle, baseBounds) {
   };
 
   return snapped;
+}
+
+function resizeBoundsByHandle(baseBounds, handle, dx, dy, minSize = SNAP_RESIZE_MIN_SIZE) {
+  const safeBase = {
+    x: Number.isFinite(baseBounds?.x) ? baseBounds.x : 0,
+    y: Number.isFinite(baseBounds?.y) ? baseBounds.y : 0,
+    width: Math.max(minSize, Number.isFinite(baseBounds?.width) ? baseBounds.width : minSize),
+    height: Math.max(minSize, Number.isFinite(baseBounds?.height) ? baseBounds.height : minSize),
+  };
+  const next = { ...safeBase };
+  const safeDx = Number.isFinite(dx) ? dx : 0;
+  const safeDy = Number.isFinite(dy) ? dy : 0;
+
+  if (handle.includes('w')) {
+    const right = safeBase.x + safeBase.width;
+    next.x = Math.min(right - minSize, safeBase.x + safeDx);
+    next.width = Math.max(minSize, right - next.x);
+  }
+
+  if (handle.includes('e')) {
+    next.width = Math.max(minSize, safeBase.width + safeDx);
+  }
+
+  if (handle.includes('n')) {
+    const bottom = safeBase.y + safeBase.height;
+    next.y = Math.min(bottom - minSize, safeBase.y + safeDy);
+    next.height = Math.max(minSize, bottom - next.y);
+  }
+
+  if (handle.includes('s')) {
+    next.height = Math.max(minSize, safeBase.height + safeDy);
+  }
+
+  return next;
+}
+
+function applyResizedBoundsToElement(element, bounds, handle) {
+  if (!element || !bounds) return;
+  const next = {
+    x: Number.isFinite(bounds.x) ? bounds.x : Number(element.x) || 0,
+    y: Number.isFinite(bounds.y) ? bounds.y : Number(element.y) || 0,
+    width: Math.max(SNAP_RESIZE_MIN_SIZE, Number.isFinite(bounds.width) ? bounds.width : Number(element.width) || SNAP_RESIZE_MIN_SIZE),
+    height: Math.max(SNAP_RESIZE_MIN_SIZE, Number.isFinite(bounds.height) ? bounds.height : Number(element.height) || SNAP_RESIZE_MIN_SIZE),
+  };
+
+  if (element.type === 'text') {
+    element.width = next.width;
+    element.height = next.height;
+  } else {
+    element.x = next.x;
+    element.y = next.y;
+    element.width = next.width;
+    element.height = next.height;
+  }
+
+  if (handle.includes('w') || handle.includes('e')) {
+    element.x = next.x;
+  }
+  if (handle.includes('n') || handle.includes('s')) {
+    element.y = next.y;
+  }
 }
 
 function undoHistory() {
@@ -2886,10 +2953,11 @@ function renderCanvas() {
   });
 
   const selectedIds = getSelectedElementIds();
+  const showHandlesForAllSelected = selectedIds.length > 1;
   selectedIds.forEach((elementId, index) => {
     const target = slide.elements.find((el) => normalizeSelectionId(el.id) === normalizeSelectionId(elementId));
     if (target) {
-      renderSelection(target, index === 0);
+      renderSelection(target, showHandlesForAllSelected || index === 0);
     }
   });
   if (state.pointerState?.mode === 'marquee' && state.pointerState.width > 0 && state.pointerState.height > 0) {
@@ -3738,21 +3806,29 @@ function onElementPointerDown(event, elementId) {
 function onHandlePointerDown(event, elementId, handle) {
   event.preventDefault();
   event.stopPropagation();
-  if (getSelectedElementIds().length > 1) return;
-  
+
   clearSnapGuideState();
   if (activeTextEditor) {
     closeActiveTextEditor({ commit: true, rerender: false });
   }
 
   const slide = currentSlide();
-  const element = slide.elements.find((item) => item.id === elementId);
+  const normalizedElementId = normalizeSelectionId(elementId);
+  const selectedIds = getSelectedElementIds();
+  const selectedElements = selectedIds.length > 1 ? getSelectedElementElements() : [];
+  const isMultiResize = selectedElements.length > 1
+    && selectedElements.some((item) => normalizeSelectionId(item.id) === normalizedElementId);
+
+  const element = slide.elements.find((item) => normalizeSelectionId(item.id) === normalizedElementId);
   if (!element) return;
 
   const bounds = getElementBounds(element);
-  setSelectedElementIds([elementId]);
+  if (!isMultiResize) {
+    setSelectedElementIds([elementId]);
+  }
 
   if (handle === 'rotate' && (element.type === 'line' || element.type === 'arrow')) {
+    if (isMultiResize) return;
     state.pointerState = {
       mode: 'rotate',
       elementId,
@@ -3770,12 +3846,33 @@ function onHandlePointerDown(event, elementId, handle) {
     return;
   }
 
+  const resizeTargets = isMultiResize
+    ? selectedElements.map((item) => {
+      const itemBounds = getElementBounds(item);
+      return {
+        id: item.id,
+        x: Number(itemBounds.x) || 0,
+        y: Number(itemBounds.y) || 0,
+        width: Math.max(SNAP_RESIZE_MIN_SIZE, Number(itemBounds.width) || SNAP_RESIZE_MIN_SIZE),
+        height: Math.max(SNAP_RESIZE_MIN_SIZE, Number(itemBounds.height) || SNAP_RESIZE_MIN_SIZE),
+      };
+    })
+    : [{
+      id: element.id,
+      x: Number(bounds.x) || 0,
+      y: Number(bounds.y) || 0,
+      width: Math.max(SNAP_RESIZE_MIN_SIZE, Number(bounds.width) || SNAP_RESIZE_MIN_SIZE),
+      height: Math.max(SNAP_RESIZE_MIN_SIZE, Number(bounds.height) || SNAP_RESIZE_MIN_SIZE),
+    }];
+
   state.pointerState = {
     mode: 'resize',
     elementId,
     pointerId: event.pointerId,
     handle,
     start: getPointerPosition(event),
+    activeIds: resizeTargets.map((item) => item.id),
+    resizeTargets,
     x: bounds.x,
     y: bounds.y,
     width: bounds.width,
@@ -3932,43 +4029,52 @@ function onPointerMove(event) {
   if (state.pointerState.mode === 'resize') {
     clearSnapGuideState();
     const h = state.pointerState.handle;
-    const b = {
-      x: state.pointerState.x,
-      y: state.pointerState.y,
-      width: state.pointerState.width,
-      height: state.pointerState.height,
+    const baseBounds = {
+      x: Number(state.pointerState.x) || 0,
+      y: Number(state.pointerState.y) || 0,
+      width: Math.max(SNAP_RESIZE_MIN_SIZE, Number(state.pointerState.width) || SNAP_RESIZE_MIN_SIZE),
+      height: Math.max(SNAP_RESIZE_MIN_SIZE, Number(state.pointerState.height) || SNAP_RESIZE_MIN_SIZE),
     };
+    const activeIds = Array.isArray(state.pointerState.activeIds)
+      ? state.pointerState.activeIds
+      : [state.pointerState.elementId];
+    const resizeTargets = Array.isArray(state.pointerState.resizeTargets)
+      ? state.pointerState.resizeTargets
+      : [];
 
-    const next = { ...b };
+    if (resizeTargets.length > 1) {
+      const primaryTarget = resizeTargets.find(
+        (item) => normalizeSelectionId(item.id) === normalizeSelectionId(state.pointerState.elementId),
+      ) || resizeTargets[0];
+      if (!primaryTarget) return;
 
-    if (h.includes('w')) next.x = Math.min(b.x + b.width - 20, p.x);
-    if (h.includes('e')) next.width = Math.max(20, b.width + dx);
-    if (h.includes('n')) next.y = Math.min(b.y + b.height - 20, p.y);
-    if (h.includes('s')) next.height = Math.max(20, b.height + dy);
+      const primaryRaw = resizeBoundsByHandle(primaryTarget, h, dx, dy);
+      const primaryNext = applyResizeSnap(primaryRaw, h, primaryTarget, activeIds);
 
-    const snapped = applyResizeSnap(next, h, b);
-    next.x = snapped.x;
-    next.y = snapped.y;
-    next.width = snapped.width;
-    next.height = snapped.height;
+      const horizontalDelta = h.includes('w')
+        ? primaryNext.x - primaryTarget.x
+        : h.includes('e')
+          ? (primaryNext.x + primaryNext.width) - (primaryTarget.x + primaryTarget.width)
+          : 0;
+      const verticalDelta = h.includes('n')
+        ? primaryNext.y - primaryTarget.y
+        : h.includes('s')
+          ? (primaryNext.y + primaryNext.height) - (primaryTarget.y + primaryTarget.height)
+          : 0;
 
-    if (element.type === 'text') {
-      element.width = next.width;
-      element.height = next.height;
-    } else {
-      element.x = next.x;
-      element.y = next.y;
-      element.width = next.width;
-      element.height = next.height;
+      resizeTargets.forEach((targetBounds) => {
+        const target = slide.elements.find((item) => normalizeSelectionId(item.id) === normalizeSelectionId(targetBounds.id));
+        if (!target) return;
+        const nextBounds = resizeBoundsByHandle(targetBounds, h, horizontalDelta, verticalDelta);
+        applyResizedBoundsToElement(target, nextBounds, h);
+      });
+      render();
+      return;
     }
 
-    if (h.includes('w') || h.includes('e')) {
-      element.x = next.x;
-    }
-    if (h.includes('n') || h.includes('s')) {
-      element.y = next.y;
-    }
-
+    const rawNext = resizeBoundsByHandle(baseBounds, h, dx, dy);
+    const next = applyResizeSnap(rawNext, h, baseBounds, activeIds);
+    applyResizedBoundsToElement(element, next, h);
     render();
   }
 }

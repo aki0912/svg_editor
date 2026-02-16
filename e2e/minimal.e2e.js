@@ -271,6 +271,9 @@ test('追加: 空白ドラッグで範囲選択して複数オブジェクトを
   await dragSvgPoint(page, { x: 20, y: 20 }, { x: 820, y: 560 });
   await expect.poll(async () => (await page.locator('#selected-label').inputValue()).trim()).toBe('2個選択');
   await expect.poll(async () => page.locator('#canvas .selection-box').count()).toBe(2);
+  await expect.poll(async () => page.evaluate((ids) => ids.every(
+    (id) => document.querySelectorAll(`#canvas .selection-handle[data-element-id="${id}"]`).length > 0,
+  ), [rectId, circleId])).toBe(true);
 
   const rectBefore = await getElementGeometry(page, rectId);
   const circleBefore = await getElementGeometry(page, circleId);
@@ -282,6 +285,35 @@ test('追加: 空白ドラッグで範囲選択して複数オブジェクトを
   expect(rectAfter.y).toBeGreaterThan(rectBefore.y + 20);
   expect(circleAfter.x).toBeGreaterThan(circleBefore.x + 30);
   expect(circleAfter.y).toBeGreaterThan(circleBefore.y + 20);
+});
+
+test('追加: 複数選択時のリサイズで全オブジェクトのサイズが変わる', async ({ page }) => {
+  await page.locator('#add-rect').click();
+  const rectId = await getLastElementId(page);
+  await page.locator('#add-circle').click();
+  const circleId = await getLastElementId(page);
+
+  await dragElementBy(page, circleId, { x: 320, y: 180 });
+  await dragSvgPoint(page, { x: 20, y: 20 }, { x: 760, y: 520 });
+  await expect.poll(async () => (await page.locator('#selected-label').inputValue()).trim()).toBe('2個選択');
+
+  await expect.poll(async () => {
+    const point = await getNorthWestHandle(page, rectId);
+    return point ? 1 : 0;
+  }).toBe(1);
+  const nwHandle = await getNorthWestHandle(page, rectId);
+  expect(nwHandle).toBeTruthy();
+
+  const rectBefore = await getElementGeometry(page, rectId);
+  const circleBefore = await getElementGeometry(page, circleId);
+  await dragSvgPoint(page, nwHandle, { x: -45, y: -35 });
+  const rectAfter = await getElementGeometry(page, rectId);
+  const circleAfter = await getElementGeometry(page, circleId);
+
+  expect(rectAfter.width).toBeGreaterThan(rectBefore.width + 10);
+  expect(rectAfter.height).toBeGreaterThan(rectBefore.height + 10);
+  expect(circleAfter.width).toBeGreaterThan(circleBefore.width + 10);
+  expect(circleAfter.height).toBeGreaterThan(circleBefore.height + 10);
 });
 
 test('最小2: ドラッグ移動と左上ハンドルリサイズ', async ({ page }) => {
