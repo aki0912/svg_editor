@@ -258,6 +258,32 @@ test('最小1: オブジェクト選択/解除（空白クリック含む）', a
   await expect(page.locator('#selected-label')).not.toHaveValue('');
 });
 
+test('追加: 空白ドラッグで範囲選択して複数オブジェクトを選べる', async ({ page }) => {
+  await page.locator('#add-rect').click();
+  const rectId = await getLastElementId(page);
+  await page.locator('#add-circle').click();
+  const circleId = await getLastElementId(page);
+
+  await dragElementBy(page, circleId, { x: 380, y: 220 });
+  await clickSvgPoint(page, { x: 1350, y: 760 });
+  await expect(page.locator('#selected-label')).toHaveValue('');
+
+  await dragSvgPoint(page, { x: 20, y: 20 }, { x: 820, y: 560 });
+  await expect.poll(async () => (await page.locator('#selected-label').inputValue()).trim()).toBe('2個選択');
+  await expect.poll(async () => page.locator('#canvas .selection-box').count()).toBe(2);
+
+  const rectBefore = await getElementGeometry(page, rectId);
+  const circleBefore = await getElementGeometry(page, circleId);
+  await dragElementBy(page, rectId, { x: 90, y: 60 });
+  const rectAfter = await getElementGeometry(page, rectId);
+  const circleAfter = await getElementGeometry(page, circleId);
+
+  expect(rectAfter.x).toBeGreaterThan(rectBefore.x + 30);
+  expect(rectAfter.y).toBeGreaterThan(rectBefore.y + 20);
+  expect(circleAfter.x).toBeGreaterThan(circleBefore.x + 30);
+  expect(circleAfter.y).toBeGreaterThan(circleBefore.y + 20);
+});
+
 test('最小2: ドラッグ移動と左上ハンドルリサイズ', async ({ page }) => {
   await page.locator('#add-rect').click();
   const id = await getLastElementId(page);

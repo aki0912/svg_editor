@@ -5,6 +5,7 @@ const SVG_IMPORT_PADDING_RATIO = 0;
 const TEXT_EDIT_DRAG_THRESHOLD = 4;
 const INLINE_TEXT_EDITOR_DRAG_GUTTER = 10;
 const SHAPE_TEXT_EDIT_DOUBLE_CLICK_MS = 350;
+const MARQUEE_DRAG_THRESHOLD = 3;
 const SNAP_THRESHOLD_DEFAULT = 10;
 const SNAP_GUIDE_FADE_DURATION = 220;
 const SNAP_RESIZE_MIN_SIZE = 20;
@@ -2878,7 +2879,6 @@ function renderCanvas() {
   bg.setAttribute('width', slide.width);
   bg.setAttribute('height', slide.height);
   bg.setAttribute('fill', slide.background);
-  bg.addEventListener('pointerdown', onCanvasPointerDownForDeselect);
   dom.canvas.appendChild(bg);
 
   slide.elements.forEach((el) => {
@@ -3238,17 +3238,28 @@ function isSelectionProtectedTarget(target) {
   return Boolean(target.closest('.properties') || target.closest('.object-actions') || target.closest('.inspector-pane'));
 }
 
+function isPointerEventFromCanvas(event) {
+  if (!event || !dom.canvas) return false;
+  if (typeof event.composedPath === 'function') {
+    const path = event.composedPath();
+    if (Array.isArray(path) && path.includes(dom.canvas)) return true;
+  }
+  const target = event.target;
+  return target instanceof Element && dom.canvas.contains(target);
+}
+
 function onCanvasPointerDownForDeselect(event) {
   if (!event) return;
   if (event.button !== undefined && event.button !== 0) return;
   lastShapeTextClick = null;
+  if (event.currentTarget === window && isPointerEventFromCanvas(event)) return;
 
   const target = event.target;
   if (!target || !(target instanceof Element) || !dom.canvas) return;
   if (isSelectionProtectedTarget(target)) return;
-  if (!dom.canvas.contains(target)) {
+  if (!dom.canvas.contains(target) && !isPointerEventFromCanvas(event)) {
     const hadSelection = hasSelection();
-    const hadMarqueeState = state.pointerState?.mode === 'marquee';
+    const hadMarqueeState = state.pointerState?.mode === 'marquee' || state.pointerState?.mode === 'marquee-intent';
     if (hadSelection) {
       setSelectedElementIds([]);
     }
@@ -3273,11 +3284,17 @@ function onCanvasPointerDownForDeselect(event) {
     if (state.pointerState) state.pointerState = null;
   }
 
-  setSelectedElementIds([]);
+  const additiveSelection = Boolean(event.shiftKey);
+  const baseSelectionIds = additiveSelection ? getSelectedElementIds() : [];
+  if (!additiveSelection) {
+    setSelectedElementIds([]);
+  }
   const start = getPointerPosition(event);
   state.pointerState = {
-    mode: 'marquee',
+    mode: 'marquee-intent',
     pointerId: event.pointerId,
+    additiveSelection,
+    baseSelectionIds,
     start,
     x: start.x,
     y: start.y,
@@ -3401,6 +3418,51 @@ function renderMarqueeSelection(pointerState) {
   marquee.setAttribute('width', width);
   marquee.setAttribute('height', height);
   dom.canvas.appendChild(marquee);
+}
+
+function buildMarqueeSelectionRect(startPoint, currentPoint) {
+  if (!startPoint || !currentPoint) return null;
+  const startX = Number(startPoint.x);
+  const startY = Number(startPoint.y);
+  const currentX = Number(currentPoint.x);
+  const currentY = Number(currentPoint.y);
+  if (!Number.isFinite(startX) || !Number.isFinite(startY) || !Number.isFinite(currentX) || !Number.isFinite(currentY)) {
+    return null;
+  }
+
+  return {
+    x: Math.min(startX, currentX),
+    y: Math.min(startY, currentY),
+    width: Math.abs(currentX - startX),
+    height: Math.abs(currentY - startY),
+  };
+}
+
+function getMarqueeSelectionIds(selectionRect) {
+  if (!selectionRect) return [];
+  const x = Number(selectionRect.x);
+  const y = Number(selectionRect.y);
+  const width = Number(selectionRect.width);
+  const height = Number(selectionRect.height);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height)) {
+    return [];
+  }
+
+  const slide = currentSlide();
+  if (!slide || !Array.isArray(slide.elements)) return [];
+
+  return slide.elements
+    .filter((element) => {
+      const bounds = getElementBounds(element);
+      if (!bounds) return false;
+      return !(
+        bounds.x + bounds.width < x
+        || bounds.x > x + width
+        || bounds.y + bounds.height < y
+        || bounds.y > y + height
+      );
+    })
+    .map((element) => element.id);
 }
 
 function closeActiveTextEditor({ commit = true, rerender = true } = {}) {
@@ -3733,17 +3795,33 @@ function onPointerMove(event) {
 
   const p = getPointerPosition(event);
 
-  if (state.pointerState.mode === 'marquee') {
-    const startX = state.pointerState.start?.x;
-    const startY = state.pointerState.start?.y;
-    if (!Number.isFinite(startX) || !Number.isFinite(startY)) return;
+  if (state.pointerState.mode === 'marquee' || state.pointerState.mode === 'marquee-intent') {
+    const selectionRect = buildMarqueeSelectionRect(state.pointerState.start, p);
+    if (!selectionRect) return;
 
-    const x = Math.min(startX, p.x);
-    const y = Math.min(startY, p.y);
-    state.pointerState.x = x;
-    state.pointerState.y = y;
-    state.pointerState.width = Math.max(0, p.x - startX < 0 ? startX - p.x : p.x - startX);
-    state.pointerState.height = Math.max(0, p.y - startY < 0 ? startY - p.y : p.y - startY);
+    if (state.pointerState.mode === 'marquee-intent') {
+      const movedX = Math.abs(p.x - state.pointerState.start.x);
+      const movedY = Math.abs(p.y - state.pointerState.start.y);
+      if (movedX < MARQUEE_DRAG_THRESHOLD && movedY < MARQUEE_DRAG_THRESHOLD) {
+        return;
+      }
+      state.pointerState.mode = 'marquee';
+    }
+
+    state.pointerState.x = selectionRect.x;
+    state.pointerState.y = selectionRect.y;
+    state.pointerState.width = selectionRect.width;
+    state.pointerState.height = selectionRect.height;
+
+    const marqueeIds = getMarqueeSelectionIds(selectionRect);
+    const additiveSelection = Boolean(state.pointerState.additiveSelection);
+    const baseSelectionIds = Array.isArray(state.pointerState.baseSelectionIds)
+      ? state.pointerState.baseSelectionIds
+      : [];
+    const nextSelectionIds = additiveSelection
+      ? getSelectedElementIds([...baseSelectionIds, ...marqueeIds])
+      : marqueeIds;
+    setSelectedElementIds(nextSelectionIds);
     render();
     return;
   }
@@ -3914,6 +3992,16 @@ function onPointerUp(event) {
     return;
   }
 
+  if (state.pointerState.mode === 'marquee-intent') {
+    const additiveSelection = Boolean(state.pointerState.additiveSelection);
+    if (!additiveSelection) {
+      setSelectedElementIds([]);
+    }
+    state.pointerState = null;
+    render();
+    return;
+  }
+
   if (state.pointerState.mode === 'marquee') {
     const selectionRect = {
       x: state.pointerState.x,
@@ -3921,29 +4009,15 @@ function onPointerUp(event) {
       width: state.pointerState.width,
       height: state.pointerState.height,
     };
-
-    if (Number.isFinite(selectionRect.width) && Number.isFinite(selectionRect.height)
-      && (selectionRect.width > 1 || selectionRect.height > 1)
-    ) {
-      const slide = currentSlide();
-      const selected = slide.elements
-        .filter((element) => {
-          const bounds = getElementBounds(element);
-          if (!bounds) return false;
-          const hit = !(
-            bounds.x + bounds.width < selectionRect.x ||
-            bounds.x > selectionRect.x + selectionRect.width ||
-            bounds.y + bounds.height < selectionRect.y ||
-            bounds.y > selectionRect.y + selectionRect.height
-          );
-          return hit;
-        })
-        .map((element) => element.id);
-      setSelectedElementIds(selected);
-    } else {
-      setSelectedElementIds([]);
-    }
-
+    const marqueeIds = getMarqueeSelectionIds(selectionRect);
+    const additiveSelection = Boolean(state.pointerState.additiveSelection);
+    const baseSelectionIds = Array.isArray(state.pointerState.baseSelectionIds)
+      ? state.pointerState.baseSelectionIds
+      : [];
+    const nextSelectionIds = additiveSelection
+      ? getSelectedElementIds([...baseSelectionIds, ...marqueeIds])
+      : marqueeIds;
+    setSelectedElementIds(nextSelectionIds);
     state.pointerState = null;
     render();
     return;
