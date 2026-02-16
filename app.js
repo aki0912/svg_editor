@@ -4,6 +4,7 @@ const STORAGE_KEY = 'svg_ppt_like_state_v1';
 const SVG_IMPORT_PADDING_RATIO = 0;
 const TEXT_EDIT_DRAG_THRESHOLD = 4;
 const INLINE_TEXT_EDITOR_DRAG_GUTTER = 10;
+const SHAPE_TEXT_EDIT_DOUBLE_CLICK_MS = 350;
 const SNAP_THRESHOLD_DEFAULT = 10;
 const SNAP_GUIDE_FADE_DURATION = 220;
 const SNAP_RESIZE_MIN_SIZE = 20;
@@ -25,6 +26,10 @@ const TEXT_INDENT_DEFAULT = 0;
 const TEXT_BULLET_DEFAULT = 'none';
 const TEXT_BULLET_TYPES = new Set(['none', 'bullet', 'number']);
 const TEXT_STYLE_FONT_SIZE_DEFAULT = 32;
+const INLINE_TEXT_SHAPE_TYPES = new Set(['rect', 'roundedRect', 'circle', 'ellipse', 'diamond']);
+const SHAPE_TEXT_FONT_SIZE_DEFAULT = 28;
+const SHAPE_TEXT_COLOR_DEFAULT = '#111827';
+const SHAPE_TEXT_BOX_PADDING = 12;
 const SLIDE_TEMPLATE_TITLES = {
   blank: '空白',
   title: 'タイトル',
@@ -131,6 +136,7 @@ let clipboardElements = [];
 let clipboardPasteOffset = 20;
 let canvasViewportFitFrame = null;
 let canvasDragDepth = 0;
+let lastShapeTextClick = null;
 
 const dom = {
   slideOverview: document.getElementById('slide-overview'),
@@ -358,11 +364,89 @@ function normalizeTextElementProperties(item) {
   item.bulletType = normalizeTextBulletType(item.bulletType || TEXT_BULLET_DEFAULT);
 }
 
+function isInlineTextShapeType(type) {
+  return INLINE_TEXT_SHAPE_TYPES.has(type);
+}
+
+function isInlineTextEditableElement(element) {
+  if (!element || typeof element !== 'object') return false;
+  return element.type === 'text' || isInlineTextShapeType(element.type);
+}
+
+function normalizeShapeInlineTextProperties(item) {
+  if (!item || !isInlineTextShapeType(item.type)) return;
+  if (typeof item.text !== 'string') item.text = '';
+  item.fontSize = normalizeTextFontSize(item.fontSize || SHAPE_TEXT_FONT_SIZE_DEFAULT);
+  item.fontFamily = normalizeFontFamilyInputValue(item.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
+  item.fontWeight = normalizeTextFontWeight(item.fontWeight || 'normal');
+  item.fontStyle = normalizeTextFontStyle(item.fontStyle || 'normal');
+  item.textAnchor = normalizeTextAlign(item.textAnchor || 'middle');
+  item.lineSpacing = normalizeTextLineSpacing(item.lineSpacing || TEXT_LINE_SPACING_DEFAULT);
+  item.letterSpacing = normalizeTextLetterSpacing(item.letterSpacing || TEXT_LETTER_SPACING_DEFAULT);
+  item.textIndent = normalizeTextIndent(item.textIndent || TEXT_INDENT_DEFAULT);
+  item.bulletType = normalizeTextBulletType(item.bulletType || TEXT_BULLET_DEFAULT);
+  const normalizedTextColor = normalizePaintColor(item.textColor);
+  item.textColor = normalizedTextColor || SHAPE_TEXT_COLOR_DEFAULT;
+}
+
+function buildInlineTextModel(element) {
+  if (!isInlineTextEditableElement(element)) return null;
+  if (element.type === 'text') {
+    normalizeTextElementProperties(element);
+  } else {
+    normalizeShapeInlineTextProperties(element);
+  }
+
+  const baseX = Number(element.x) || 0;
+  const baseY = Number(element.y) || 0;
+  const sourceWidth = Math.max(1, Number(element.width) || 1);
+  const sourceHeight = Math.max(1, Number(element.height) || 1);
+  const inset = element.type === 'text'
+    ? 0
+    : Math.min(
+      SHAPE_TEXT_BOX_PADDING,
+      Math.max(2, Math.floor(Math.min(sourceWidth, sourceHeight) / 3)),
+    );
+  const dominantBaseline = normalizeTextDominantBaseline(element.dominantBaseline || 'hanging');
+
+  return {
+    ...element,
+    x: baseX + inset,
+    y: baseY + inset,
+    width: Math.max(1, sourceWidth - (inset * 2)),
+    height: Math.max(1, sourceHeight - (inset * 2)),
+    text: typeof element.text === 'string' ? element.text : '',
+    fill: element.type === 'text'
+      ? (element.fill || '#111827')
+      : (element.textColor || SHAPE_TEXT_COLOR_DEFAULT),
+    stroke: element.type === 'text' ? (element.stroke || 'none') : 'none',
+    strokeWidth: element.type === 'text'
+      ? (Number.isFinite(element.strokeWidth) ? element.strokeWidth : 0)
+      : 0,
+    fontSize: normalizeTextFontSize(
+      element.fontSize || (element.type === 'text' ? TEXT_STYLE_FONT_SIZE_DEFAULT : SHAPE_TEXT_FONT_SIZE_DEFAULT),
+    ),
+    fontFamily: normalizeFontFamilyInputValue(element.fontFamily || DEFAULT_TEXT_FONT_FAMILY),
+    fontWeight: normalizeTextFontWeight(element.fontWeight || 'normal'),
+    fontStyle: normalizeTextFontStyle(element.fontStyle || 'normal'),
+    textAnchor: normalizeTextAlign(element.textAnchor || (element.type === 'text' ? 'start' : 'middle')),
+    lineSpacing: normalizeTextLineSpacing(element.lineSpacing || TEXT_LINE_SPACING_DEFAULT),
+    letterSpacing: normalizeTextLetterSpacing(element.letterSpacing || TEXT_LETTER_SPACING_DEFAULT),
+    textIndent: normalizeTextIndent(element.textIndent || TEXT_INDENT_DEFAULT),
+    bulletType: normalizeTextBulletType(element.bulletType || TEXT_BULLET_DEFAULT),
+    dominantBaseline,
+    alignmentBaseline: normalizeTextAlignmentBaseline(element.alignmentBaseline || 'auto', dominantBaseline),
+  };
+}
+
 function normalizeTextElementsInSlides(slides) {
   if (!Array.isArray(slides)) return;
   for (const slide of slides) {
     if (!slide || !Array.isArray(slide.elements)) continue;
-    slide.elements.forEach(normalizeTextElementProperties);
+    slide.elements.forEach((item) => {
+      normalizeTextElementProperties(item);
+      normalizeShapeInlineTextProperties(item);
+    });
   }
 }
 
@@ -2184,42 +2268,43 @@ function getTextOffsetForLine(line, targetX, ctx, element) {
 }
 
 function getTextCaretOffsetFromPoint(element, point) {
+  const textModel = buildInlineTextModel(element);
+  if (!textModel) return 0;
   if (textCommands && typeof textCommands.getTextCaretOffsetFromPoint === 'function') {
-    return textCommands.getTextCaretOffsetFromPoint(element, point);
+    return textCommands.getTextCaretOffsetFromPoint(textModel, point);
   }
-  normalizeTextElementProperties(element);
 
   if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
-    return (element.text || '').length;
+    return (textModel.text || '').length;
   }
 
-  const fontSize = normalizeTextFontSize(element.fontSize);
-  const lineHeight = getTextLineHeight(fontSize, normalizeTextLineSpacing(element.lineSpacing || TEXT_LINE_SPACING_DEFAULT));
-  const bulletType = normalizeTextBulletType(element.bulletType || TEXT_BULLET_DEFAULT);
-  const textIndent = normalizeTextIndent(element.textIndent || TEXT_INDENT_DEFAULT);
-  const letterSpacing = normalizeTextLetterSpacing(element.letterSpacing || TEXT_LETTER_SPACING_DEFAULT);
-  const lines = (element.text || '').split('\n');
-  const textAlign = normalizeTextAlign(element.textAnchor || 'start');
+  const fontSize = normalizeTextFontSize(textModel.fontSize);
+  const lineHeight = getTextLineHeight(fontSize, normalizeTextLineSpacing(textModel.lineSpacing || TEXT_LINE_SPACING_DEFAULT));
+  const bulletType = normalizeTextBulletType(textModel.bulletType || TEXT_BULLET_DEFAULT);
+  const textIndent = normalizeTextIndent(textModel.textIndent || TEXT_INDENT_DEFAULT);
+  const letterSpacing = normalizeTextLetterSpacing(textModel.letterSpacing || TEXT_LETTER_SPACING_DEFAULT);
+  const lines = (textModel.text || '').split('\n');
+  const textAlign = normalizeTextAlign(textModel.textAnchor || 'start');
   if (!lines.length) return 0;
 
   const measuredLineWidths = lines.map((line, index) => {
     return getTextLineWidth(line, fontSize, {
-      ...element,
+      ...textModel,
       letterSpacing,
       __lineIndex: index,
       bulletType,
     });
   });
-  const elementWidth = Number(element.width);
+  const elementWidth = Number(textModel.width);
   const baseX = textAlign === 'middle'
-    ? Number(element.x || 0) + (Number.isFinite(elementWidth) ? elementWidth / 2 : 0)
+    ? Number(textModel.x || 0) + (Number.isFinite(elementWidth) ? elementWidth / 2 : 0)
     : textAlign === 'end'
-      ? Number(element.x || 0) + (Number.isFinite(elementWidth) ? elementWidth : 0)
-      : Number(element.x || 0);
-  const renderTopY = getTextRenderTopY(element, lineHeight);
+      ? Number(textModel.x || 0) + (Number.isFinite(elementWidth) ? elementWidth : 0)
+      : Number(textModel.x || 0);
+  const renderTopY = getTextRenderTopY(textModel, lineHeight);
   const cursorLine = clamp(Math.floor((point.y - renderTopY) / lineHeight), 0, lines.length - 1);
   const currentLine = lines[cursorLine] || '';
-  const currentLineWidth = Math.max(1, measuredLineWidths[cursorLine] || getTextLineWidth(currentLine, fontSize, element));
+  const currentLineWidth = Math.max(1, measuredLineWidths[cursorLine] || getTextLineWidth(currentLine, fontSize, textModel));
 
   let x = point.x - (baseX + textIndent);
 
@@ -2230,16 +2315,16 @@ function getTextCaretOffsetFromPoint(element, point) {
   }
 
   const ctx = getTextMeasureContext();
-  if (!ctx) return element.text.length;
-  ctx.font = buildTextFontDescription(element);
+  if (!ctx) return textModel.text.length;
+  ctx.font = buildTextFontDescription(textModel);
 
   const clampedX = Math.max(0, x);
   const currentLineDisplay = buildTextDisplayLine(currentLine, cursorLine, { bulletType });
   const localOffset = getTextOffsetForLine(currentLineDisplay.text, clampedX, ctx, {
-    ...element,
+    ...textModel,
     fontSize,
-    fontWeight: normalizeTextFontWeight(element.fontWeight),
-    fontStyle: normalizeTextFontStyle(element.fontStyle),
+    fontWeight: normalizeTextFontWeight(textModel.fontWeight),
+    fontStyle: normalizeTextFontStyle(textModel.fontStyle),
     letterSpacing,
   });
   const contentOffset = Math.max(0, localOffset - currentLineDisplay.prefixLength);
@@ -2250,30 +2335,30 @@ function getTextCaretOffsetFromPoint(element, point) {
     offset += line.length + 1;
   }
   const currentLineLength = (currentLine || '').length;
-  return clamp(offset + Math.min(contentOffset, currentLineLength), 0, element.text.length);
+  return clamp(offset + Math.min(contentOffset, currentLineLength), 0, textModel.text.length);
 }
 
 function isPointOnRenderedTextContent(element, point) {
-  if (!element || element.type !== 'text') return false;
+  const textModel = buildInlineTextModel(element);
+  if (!textModel) return false;
   if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return false;
 
-  normalizeTextElementProperties(element);
-  const lines = (element.text || '').split('\n');
+  const lines = (textModel.text || '').split('\n');
   if (!lines.length) return false;
 
-  const fontSize = normalizeTextFontSize(element.fontSize);
-  const lineHeight = getTextLineHeight(fontSize, normalizeTextLineSpacing(element.lineSpacing || TEXT_LINE_SPACING_DEFAULT));
-  const bulletType = normalizeTextBulletType(element.bulletType || TEXT_BULLET_DEFAULT);
-  const textIndent = normalizeTextIndent(element.textIndent || TEXT_INDENT_DEFAULT);
-  const letterSpacing = normalizeTextLetterSpacing(element.letterSpacing || TEXT_LETTER_SPACING_DEFAULT);
-  const textAlign = normalizeTextAlign(element.textAnchor || 'start');
-  const elementWidth = Number(element.width);
+  const fontSize = normalizeTextFontSize(textModel.fontSize);
+  const lineHeight = getTextLineHeight(fontSize, normalizeTextLineSpacing(textModel.lineSpacing || TEXT_LINE_SPACING_DEFAULT));
+  const bulletType = normalizeTextBulletType(textModel.bulletType || TEXT_BULLET_DEFAULT);
+  const textIndent = normalizeTextIndent(textModel.textIndent || TEXT_INDENT_DEFAULT);
+  const letterSpacing = normalizeTextLetterSpacing(textModel.letterSpacing || TEXT_LETTER_SPACING_DEFAULT);
+  const textAlign = normalizeTextAlign(textModel.textAnchor || 'start');
+  const elementWidth = Number(textModel.width);
   const baseX = textAlign === 'middle'
-    ? Number(element.x || 0) + (Number.isFinite(elementWidth) ? elementWidth / 2 : 0)
+    ? Number(textModel.x || 0) + (Number.isFinite(elementWidth) ? elementWidth / 2 : 0)
     : textAlign === 'end'
-      ? Number(element.x || 0) + (Number.isFinite(elementWidth) ? elementWidth : 0)
-      : Number(element.x || 0);
-  const renderTopY = getTextRenderTopY(element, lineHeight);
+      ? Number(textModel.x || 0) + (Number.isFinite(elementWidth) ? elementWidth : 0)
+      : Number(textModel.x || 0);
+  const renderTopY = getTextRenderTopY(textModel, lineHeight);
 
   for (let index = 0; index < lines.length; index += 1) {
     const lineTop = renderTopY + (lineHeight * index);
@@ -2282,7 +2367,7 @@ function isPointOnRenderedTextContent(element, point) {
 
     const line = lines[index] || '';
     const lineWidth = Math.max(1, getTextLineWidth(line, fontSize, {
-      ...element,
+      ...textModel,
       letterSpacing,
       __lineIndex: index,
       bulletType,
@@ -2423,34 +2508,44 @@ function render() {
   saveLocal();
 }
 
-function createThumbnailTextNode(el) {
-  const g = document.createElementNS(SVG_NS, 'g');
-  normalizeTextElementProperties(el);
-  const textAnchor = normalizeTextAlign(el.textAnchor || 'start');
-  const fontSize = normalizeTextFontSize(el.fontSize);
-  const lineHeight = getTextLineHeight(fontSize, normalizeTextLineSpacing(el.lineSpacing || TEXT_LINE_SPACING_DEFAULT));
-  const letterSpacing = normalizeTextLetterSpacing(el.letterSpacing || TEXT_LETTER_SPACING_DEFAULT);
-  const textIndent = normalizeTextIndent(el.textIndent || TEXT_INDENT_DEFAULT);
-  const bulletType = normalizeTextBulletType(el.bulletType || TEXT_BULLET_DEFAULT);
-  const fontWeight = normalizeTextFontWeight(el.fontWeight);
-  const fontStyle = normalizeTextFontStyle(el.fontStyle);
-  const baseX = Number(el.x) || 0;
-  const width = Number.isFinite(el.width) ? el.width : 0;
+function appendInlineTextNode(group, model, options = {}) {
+  if (!group || !model) return null;
+  const {
+    includeHitArea = false,
+    hitAreaBounds = null,
+    enableTextHitSource = false,
+    pointerEvents = null,
+    renderWhenEmpty = false,
+  } = options;
+  const textValue = typeof model.text === 'string' ? model.text : '';
+  if (!renderWhenEmpty && textValue.length === 0) return null;
+
+  const textAnchor = normalizeTextAlign(model.textAnchor || 'start');
+  const fontSize = normalizeTextFontSize(model.fontSize);
+  const lineSpacing = normalizeTextLineSpacing(model.lineSpacing || TEXT_LINE_SPACING_DEFAULT);
+  const letterSpacing = normalizeTextLetterSpacing(model.letterSpacing || TEXT_LETTER_SPACING_DEFAULT);
+  const textIndent = normalizeTextIndent(model.textIndent || TEXT_INDENT_DEFAULT);
+  const bulletType = normalizeTextBulletType(model.bulletType || TEXT_BULLET_DEFAULT);
+  const fontWeight = normalizeTextFontWeight(model.fontWeight);
+  const fontStyle = normalizeTextFontStyle(model.fontStyle);
+  const baseX = Number(model.x) || 0;
+  const width = Number(model.width);
   const anchorX = textAnchor === 'middle'
-    ? baseX + width / 2
+    ? baseX + (Number.isFinite(width) ? width / 2 : 0)
     : textAnchor === 'end'
-      ? baseX + width
+      ? baseX + (Number.isFinite(width) ? width : 0)
       : baseX;
   const lineX = anchorX + textIndent;
-  const text = document.createElementNS(SVG_NS, 'text');
-  const textLines = (el.text || '').split('\n');
-  const safeFontFamily = normalizeFontFamilyValue(el.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
-  const renderBaselineY = getTextRenderBaselineY(el, fontSize, {
-    fontFamily: safeFontFamily,
+  const textLines = textValue.split('\n');
+  const fontFamily = normalizeFontFamilyValue(model.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
+  const lineHeight = getTextLineHeight(fontSize, lineSpacing);
+  const renderBaselineY = getTextRenderBaselineY(model, fontSize, {
+    fontFamily,
     fontWeight,
     fontStyle,
-    sampleText: textLines[0] || el.text || '',
+    sampleText: textLines[0] || textValue || '',
   });
+  const textNode = document.createElementNS(SVG_NS, 'text');
 
   textLines.forEach((line, index) => {
     const tspan = document.createElementNS(SVG_NS, 'tspan');
@@ -2460,23 +2555,53 @@ function createThumbnailTextNode(el) {
       tspan.setAttribute('dy', String(lineHeight));
     }
     tspan.textContent = displayLine.text;
-    text.appendChild(tspan);
+    textNode.appendChild(tspan);
   });
 
-  text.setAttribute('x', String(lineX));
-  text.setAttribute('y', String(renderBaselineY));
-  text.setAttribute('fill', el.fill || '#111827');
-  text.setAttribute('font-size', String(fontSize));
-  text.setAttribute('font-family', safeFontFamily);
-  text.setAttribute('font-weight', fontWeight);
-  text.setAttribute('font-style', fontStyle);
-  text.setAttribute('text-anchor', textAnchor);
-  text.setAttribute('letter-spacing', String(letterSpacing));
-  text.setAttribute('dominant-baseline', 'alphabetic');
-  text.setAttribute('alignment-baseline', 'baseline');
-  text.setAttribute('stroke', el.stroke || 'none');
-  text.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 0);
-  g.appendChild(text);
+  textNode.setAttribute('x', String(lineX));
+  textNode.setAttribute('y', String(renderBaselineY));
+  textNode.setAttribute('fill', model.fill || '#111827');
+  textNode.setAttribute('font-size', String(fontSize));
+  textNode.setAttribute('font-family', fontFamily);
+  textNode.setAttribute('font-weight', fontWeight);
+  textNode.setAttribute('font-style', fontStyle);
+  textNode.setAttribute('text-anchor', textAnchor);
+  textNode.setAttribute('letter-spacing', String(letterSpacing));
+  textNode.setAttribute('dominant-baseline', 'alphabetic');
+  textNode.setAttribute('alignment-baseline', 'baseline');
+  textNode.setAttribute('stroke', model.stroke || 'none');
+  textNode.setAttribute('stroke-width', Number.isFinite(model.strokeWidth) ? model.strokeWidth : 0);
+  textNode.dataset.inlineTextNode = '1';
+  if (pointerEvents) {
+    textNode.setAttribute('pointer-events', pointerEvents);
+  }
+  if (enableTextHitSource) {
+    textNode.dataset.textHitSource = 'content';
+  }
+
+  if (includeHitArea) {
+    const bounds = hitAreaBounds || getElementBounds(model);
+    const hitArea = document.createElementNS(SVG_NS, 'rect');
+    hitArea.setAttribute('x', String(bounds.x));
+    hitArea.setAttribute('y', String(bounds.y));
+    hitArea.setAttribute('width', String(Math.max(1, bounds.width)));
+    hitArea.setAttribute('height', String(Math.max(1, bounds.height)));
+    hitArea.setAttribute('fill', 'transparent');
+    hitArea.setAttribute('pointer-events', 'all');
+    hitArea.dataset.textHitSource = 'box';
+    group.appendChild(hitArea);
+  }
+
+  group.appendChild(textNode);
+  return textNode;
+}
+
+function createThumbnailTextNode(el) {
+  const g = document.createElementNS(SVG_NS, 'g');
+  appendInlineTextNode(g, buildInlineTextModel(el), {
+    pointerEvents: 'none',
+    renderWhenEmpty: true,
+  });
   return g;
 }
 
@@ -2495,6 +2620,7 @@ function createThumbnailShapeNode(el) {
     rect.setAttribute('stroke', el.stroke || '#003f7a');
     rect.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
     g.appendChild(rect);
+    appendInlineTextNode(g, buildInlineTextModel(el), { pointerEvents: 'none' });
     return g;
   }
 
@@ -2510,6 +2636,7 @@ function createThumbnailShapeNode(el) {
     rect.setAttribute('stroke', el.stroke || '#003f7a');
     rect.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
     g.appendChild(rect);
+    appendInlineTextNode(g, buildInlineTextModel(el), { pointerEvents: 'none' });
     return g;
   }
 
@@ -2526,6 +2653,7 @@ function createThumbnailShapeNode(el) {
     circle.setAttribute('stroke', el.stroke || '#0f3f66');
     circle.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
     g.appendChild(circle);
+    appendInlineTextNode(g, buildInlineTextModel(el), { pointerEvents: 'none' });
     return g;
   }
 
@@ -2539,6 +2667,7 @@ function createThumbnailShapeNode(el) {
     ellipse.setAttribute('stroke', el.stroke || '#0f3f66');
     ellipse.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
     g.appendChild(ellipse);
+    appendInlineTextNode(g, buildInlineTextModel(el), { pointerEvents: 'none' });
     return g;
   }
 
@@ -2633,6 +2762,7 @@ function createThumbnailShapeNode(el) {
     diamond.setAttribute('stroke', el.stroke || '#003f7a');
     diamond.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 2);
     g.appendChild(diamond);
+    appendInlineTextNode(g, buildInlineTextModel(el), { pointerEvents: 'none' });
     return g;
   }
 
@@ -2848,73 +2978,13 @@ function renderElement(el) {
   g.classList.add('canvas-element');
 
   if (el.type === 'text') {
-    normalizeTextElementProperties(el);
     const textBounds = getElementBounds(el);
-    const textAnchor = normalizeTextAlign(el.textAnchor || 'start');
-    const fontSize = normalizeTextFontSize(el.fontSize);
-    const baseX = Number(el.x) || 0;
-    const elementWidth = Number(el.width);
-    const lineSpacing = normalizeTextLineSpacing(el.lineSpacing || TEXT_LINE_SPACING_DEFAULT);
-    const letterSpacing = normalizeTextLetterSpacing(el.letterSpacing || TEXT_LETTER_SPACING_DEFAULT);
-    const textIndent = normalizeTextIndent(el.textIndent || TEXT_INDENT_DEFAULT);
-    const bulletType = normalizeTextBulletType(el.bulletType || TEXT_BULLET_DEFAULT);
-    const fontWeight = normalizeTextFontWeight(el.fontWeight);
-    const fontStyle = normalizeTextFontStyle(el.fontStyle);
-    const anchorX = textAnchor === 'middle'
-      ? baseX + (Number.isFinite(elementWidth) ? elementWidth / 2 : 0)
-      : textAnchor === 'end'
-        ? baseX + (Number.isFinite(elementWidth) ? elementWidth : 0)
-        : baseX;
-    const anchorOffsetX = anchorX + textIndent;
-    const text = document.createElementNS(SVG_NS, 'text');
-    const fontFamily = normalizeFontFamilyValue(el.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
-    const textLines = (el.text || '').split('\n');
-    const lineHeight = getTextLineHeight(fontSize, lineSpacing);
-    const lineX = anchorOffsetX;
-    const renderBaselineY = getTextRenderBaselineY(el, fontSize, {
-      fontFamily,
-      fontWeight,
-      fontStyle,
-      sampleText: textLines[0] || el.text || '',
+    appendInlineTextNode(g, buildInlineTextModel(el), {
+      includeHitArea: true,
+      hitAreaBounds: textBounds,
+      enableTextHitSource: true,
+      renderWhenEmpty: true,
     });
-
-    textLines.forEach((line, index) => {
-      const tspan = document.createElementNS(SVG_NS, 'tspan');
-      const displayLine = buildTextDisplayLine(line, index, { bulletType });
-      if (index > 0) {
-        tspan.setAttribute('x', lineX);
-        tspan.setAttribute('dy', String(lineHeight));
-      }
-      tspan.textContent = displayLine.text;
-      text.appendChild(tspan);
-    });
-
-    text.setAttribute('x', lineX);
-    text.setAttribute('y', renderBaselineY);
-    text.setAttribute('fill', el.fill || '#111827');
-    text.setAttribute('font-size', String(fontSize));
-    text.setAttribute('font-family', fontFamily);
-    text.setAttribute('font-weight', fontWeight);
-    text.setAttribute('font-style', fontStyle);
-    text.setAttribute('text-anchor', textAnchor);
-    text.setAttribute('letter-spacing', String(letterSpacing));
-    text.setAttribute('dominant-baseline', 'alphabetic');
-    text.setAttribute('alignment-baseline', 'baseline');
-    text.setAttribute('stroke', el.stroke || 'none');
-    text.setAttribute('stroke-width', Number.isFinite(el.strokeWidth) ? el.strokeWidth : 0);
-    text.dataset.textHitSource = 'content';
-
-    const hitArea = document.createElementNS(SVG_NS, 'rect');
-    hitArea.setAttribute('x', textBounds.x);
-    hitArea.setAttribute('y', textBounds.y);
-    hitArea.setAttribute('width', Math.max(1, textBounds.width));
-    hitArea.setAttribute('height', Math.max(1, textBounds.height));
-    hitArea.setAttribute('fill', 'transparent');
-    hitArea.setAttribute('pointer-events', 'all');
-    hitArea.dataset.textHitSource = 'box';
-    g.appendChild(hitArea);
-
-    g.appendChild(text);
   }
 
   if (el.type === 'rect') {
@@ -3056,6 +3126,12 @@ function renderElement(el) {
     g.appendChild(diamond);
   }
 
+  if (isInlineTextShapeType(el.type)) {
+    appendInlineTextNode(g, buildInlineTextModel(el), {
+      pointerEvents: 'none',
+    });
+  }
+
   g.addEventListener('pointerdown', (event) => onElementPointerDown(event, el.id));
   g.addEventListener('dblclick', (event) => {
     event.stopPropagation();
@@ -3165,6 +3241,7 @@ function isSelectionProtectedTarget(target) {
 function onCanvasPointerDownForDeselect(event) {
   if (!event) return;
   if (event.button !== undefined && event.button !== 0) return;
+  lastShapeTextClick = null;
 
   const target = event.target;
   if (!target || !(target instanceof Element) || !dom.canvas) return;
@@ -3343,9 +3420,9 @@ function closeActiveTextEditor({ commit = true, rerender = true } = {}) {
     editor.foreignObject.parentElement.removeChild(editor.foreignObject);
   }
 
-  if (commit && target && target.type === 'text' && editor.textarea) {
+  if (commit && target && isInlineTextEditableElement(target) && editor.textarea) {
     const nextText = editor.textarea.value;
-    textCommitted = target.text !== nextText;
+    textCommitted = String(target.text || '') !== nextText;
     target.text = nextText;
     if (target.type === 'text') {
       syncTextElementHeightFromContent(target);
@@ -3362,8 +3439,9 @@ function closeActiveTextEditor({ commit = true, rerender = true } = {}) {
 function openTextEditorForElement(elementId, point = null) {
   const slide = currentSlide();
   const element = slide.elements.find((item) => item.id === elementId);
-  if (!element || element.type !== 'text') return;
-  normalizeTextElementProperties(element);
+  if (!isInlineTextEditableElement(element)) return;
+  const textModel = buildInlineTextModel(element);
+  if (!textModel) return;
 
   if (activeTextEditor && activeTextEditor.elementId === elementId) {
     if (activeTextEditor.textarea) activeTextEditor.textarea.focus();
@@ -3376,14 +3454,14 @@ function openTextEditorForElement(elementId, point = null) {
 
   const group = dom.canvas.querySelector(`[data-element-id="${elementId}"]`);
   if (!group) return;
-  const textElement = group.querySelector('text');
+  const textElement = group.querySelector('text[data-inline-text-node="1"]');
   if (textElement) textElement.setAttribute('visibility', 'hidden');
 
-  const elementX = Number(element.x) || 0;
-  const elementY = Number(element.y) || 0;
-  const width = Math.max(1, Number(element.width) || 1);
-  const initialHeight = Math.max(1, Number(element.height) || 1);
-  const textLines = (element.text || '').split('\n');
+  const elementX = Number(textModel.x) || 0;
+  const elementY = Number(textModel.y) || 0;
+  const width = Math.max(1, Number(textModel.width) || 1);
+  const initialHeight = Math.max(1, Number(textModel.height) || 1);
+  const textLines = (textModel.text || '').split('\n');
   const editorGutter = INLINE_TEXT_EDITOR_DRAG_GUTTER;
 
   const foreignObject = document.createElementNS(SVG_NS, 'foreignObject');
@@ -3402,18 +3480,18 @@ function openTextEditorForElement(elementId, point = null) {
   host.style.outlineOffset = '-2px';
   host.style.borderRadius = '6px';
   host.style.cursor = 'move';
-  const editorLineSpacing = normalizeTextLineSpacing(element.lineSpacing);
-  const editorLetterSpacing = normalizeTextLetterSpacing(element.letterSpacing);
-  const editorTextIndent = normalizeTextIndent(element.textIndent);
-  const editorFontSize = normalizeTextFontSize(element.fontSize || TEXT_STYLE_FONT_SIZE_DEFAULT);
+  const editorLineSpacing = normalizeTextLineSpacing(textModel.lineSpacing);
+  const editorLetterSpacing = normalizeTextLetterSpacing(textModel.letterSpacing);
+  const editorTextIndent = normalizeTextIndent(textModel.textIndent);
+  const editorFontSize = normalizeTextFontSize(textModel.fontSize || TEXT_STYLE_FONT_SIZE_DEFAULT);
   const editorLineHeight = getTextLineHeight(editorFontSize, editorLineSpacing);
 
   const textarea = document.createElementNS(HTML_NS, 'textarea');
-  textarea.value = element.text || '';
+  textarea.value = textModel.text || '';
   textarea.rows = Math.max(1, textLines.length);
   textarea.setAttribute('aria-label', 'テキストを直接編集');
   textarea.className = 'inline-textarea';
-  const fontFamily = normalizeFontFamilyValue(element.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
+  const fontFamily = normalizeFontFamilyValue(textModel.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
   textarea.style.cssText = [
     'width:100%;',
     'height:100%;',
@@ -3423,12 +3501,12 @@ function openTextEditorForElement(elementId, point = null) {
     'border-radius:6px;',
     'box-sizing:border-box;',
     'background:rgba(255,255,255,0.98);',
-    `color:${element.fill || '#111827'};`,
+    `color:${textModel.fill || '#111827'};`,
     `font-size:${editorFontSize}px;`,
     `font-family:${fontFamily};`,
-    `font-weight:${normalizeTextFontWeight(element.fontWeight)};`,
-    `font-style:${normalizeTextFontStyle(element.fontStyle)};`,
-    `text-align:${getTextAlignCssValue(normalizeTextAlign(element.textAnchor || 'start'))};`,
+    `font-weight:${normalizeTextFontWeight(textModel.fontWeight)};`,
+    `font-style:${normalizeTextFontStyle(textModel.fontStyle)};`,
+    `text-align:${getTextAlignCssValue(normalizeTextAlign(textModel.textAnchor || 'start'))};`,
     `line-height:${editorLineHeight}px;`,
     `letter-spacing:${editorLetterSpacing}px;`,
     `text-indent:${editorTextIndent}px;`,
@@ -3444,8 +3522,10 @@ function openTextEditorForElement(elementId, point = null) {
     if (event.button === 2) return;
 
     const shouldDragFromEdge = isPointerNearTextareaEdge(event);
-    const point = getPointerPosition(event);
-    const onTextContent = isPointOnRenderedTextContent(element, point);
+    const pointer = getPointerPosition(event);
+    const onTextContent = element.type === 'text'
+      ? isPointOnRenderedTextContent(textModel, pointer)
+      : true;
     if (!shouldDragFromEdge && onTextContent) return;
 
     startInlineEditorDragIntent(event, elementId, element);
@@ -3477,6 +3557,7 @@ function openTextEditorForElement(elementId, point = null) {
   activeTextEditor = {
     elementId,
     element,
+    textModel,
     foreignObject,
     textElement,
     textarea,
@@ -3486,7 +3567,7 @@ function openTextEditorForElement(elementId, point = null) {
   renderProperties();
 
   textarea.focus();
-  const caret = getTextCaretOffsetFromPoint(element, point);
+  const caret = getTextCaretOffsetFromPoint(textModel, point);
   textarea.setSelectionRange(caret, caret);
 }
 
@@ -3528,6 +3609,36 @@ function onElementPointerDown(event, elementId) {
     const start = getPointerPosition(event);
     state.pointerState = {
       mode: 'edit-intent',
+      elementId,
+      pointerId: event.pointerId,
+      start,
+      x: element.x,
+      y: element.y,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    render();
+    return;
+  }
+
+  const canEditShapeText = hasSingleSelection()
+    && isInlineTextShapeType(element.type)
+    && normalizeSelectionId(state.selectedElementId) === normalizeSelectionId(elementId);
+  const pointerTime = Number.isFinite(event.timeStamp) ? event.timeStamp : Date.now();
+  const normalizedElementId = normalizeSelectionId(elementId);
+  const isShapeDoubleClick = Boolean(
+    lastShapeTextClick
+    && lastShapeTextClick.elementId === normalizedElementId
+    && (pointerTime - lastShapeTextClick.time) <= SHAPE_TEXT_EDIT_DOUBLE_CLICK_MS,
+  );
+  lastShapeTextClick = {
+    elementId: normalizedElementId,
+    time: pointerTime,
+  };
+
+  if (canEditShapeText && !isShiftSelecting && isShapeDoubleClick) {
+    const start = getPointerPosition(event);
+    state.pointerState = {
+      mode: 'shape-edit-intent',
       elementId,
       pointerId: event.pointerId,
       start,
@@ -3641,7 +3752,7 @@ function onPointerMove(event) {
   const element = slide.elements.find((item) => item.id === state.pointerState.elementId);
   if (!element) return;
 
-  if (state.pointerState.mode === 'edit-intent') {
+  if (state.pointerState.mode === 'edit-intent' || state.pointerState.mode === 'shape-edit-intent') {
     const movedX = Math.abs(p.x - state.pointerState.start.x);
     const movedY = Math.abs(p.y - state.pointerState.start.y);
     clearSnapGuideState();
@@ -3788,7 +3899,7 @@ function onPointerUp(event) {
   if (!state.pointerState) return;
   const shouldRecord = ['move', 'resize', 'rotate'].includes(state.pointerState.mode);
 
-  if (state.pointerState.mode === 'edit-intent') {
+  if (state.pointerState.mode === 'edit-intent' || state.pointerState.mode === 'shape-edit-intent') {
     const { elementId } = state.pointerState;
     state.pointerState = null;
     openTextEditorForElement(elementId, event ? getPointerPosition(event) : null);
@@ -4224,9 +4335,13 @@ function renderProperties() {
   const slide = currentSlide();
   const selectedElements = getSelectedElementElements();
   const item = selectedElements[0] || null;
-  if (item?.type === 'text') {
-    normalizeTextElementProperties(item);
-    ensureFontFamilySelectOption(item.fontFamily);
+  if (item?.type === 'text' || isInlineTextShapeType(item?.type)) {
+    if (item.type === 'text') {
+      normalizeTextElementProperties(item);
+    } else {
+      normalizeShapeInlineTextProperties(item);
+    }
+    ensureFontFamilySelectOption(item.fontFamily || DEFAULT_TEXT_FONT_FAMILY);
   }
   const editing = activeTextEditor ? slide.elements.find((e) => e.id === activeTextEditor.elementId) : null;
   const textPropertyControls = [
@@ -4262,6 +4377,7 @@ function renderProperties() {
   const hasSelection = selectedElements.length > 0;
   const canAlign = selectedElements.length >= 2;
   const canDistribute = selectedElements.length >= 3;
+  const isInlineTextSelection = hasSelection && selectedElements.length === 1 && isInlineTextEditableElement(item);
   const isTextSelection = hasSelection && selectedElements.length === 1 && item?.type === 'text';
   const isLineSelection = hasSelection && selectedElements.length === 1 && (item?.type === 'line' || item?.type === 'arrow');
   const supportsFill = hasSelection && selectedElements.every((selected) => selected.type !== 'svg-fragment');
@@ -4287,23 +4403,23 @@ function renderProperties() {
 
   dom.selectedLabel.value = selectedElements.length > 1 ? `${selectedElements.length}個選択` : typeLabel;
 
-  setTextPropertyVisibility(isTextSelection);
+  setTextPropertyVisibility(isInlineTextSelection);
   setShapePropertyVisibility(isLineSelection);
   dom.propFillLabel.textContent = isTextSelection ? '文字色' : '塗りつぶし';
   dom.propStrokeLabel.textContent = '枠色';
   dom.propFill.disabled = !supportsFill || !hasSelection;
   dom.propStroke.disabled = !supportsFill || !hasSelection;
   dom.propShapeRotation.disabled = !isLineSelection;
-  dom.propFontSize.disabled = !isTextSelection;
-  dom.propTextAlign.disabled = !isTextSelection;
-  dom.propFontFamily.disabled = !isTextSelection;
-  dom.propFontBold.disabled = !isTextSelection;
-  dom.propFontItalic.disabled = !isTextSelection;
-  dom.propTextLineSpacing.disabled = !isTextSelection;
-  dom.propTextLetterSpacing.disabled = !isTextSelection;
-  dom.propTextIndent.disabled = !isTextSelection;
-  dom.propTextBullet.disabled = !isTextSelection;
-  dom.propText.disabled = !isTextSelection;
+  dom.propFontSize.disabled = !isInlineTextSelection;
+  dom.propTextAlign.disabled = !isInlineTextSelection;
+  dom.propFontFamily.disabled = !isInlineTextSelection;
+  dom.propFontBold.disabled = !isInlineTextSelection;
+  dom.propFontItalic.disabled = !isInlineTextSelection;
+  dom.propTextLineSpacing.disabled = !isInlineTextSelection;
+  dom.propTextLetterSpacing.disabled = !isInlineTextSelection;
+  dom.propTextIndent.disabled = !isInlineTextSelection;
+  dom.propTextBullet.disabled = !isInlineTextSelection;
+  dom.propText.disabled = !isInlineTextSelection;
   dom.bringFront.disabled = !hasSelection;
   dom.sendBack.disabled = !hasSelection;
   dom.alignLeft.disabled = !canAlign;
@@ -4343,13 +4459,23 @@ function renderProperties() {
   if (selectedElements.length !== 1) {
     return;
   }
-  dom.propFontSize.value = String(item.type === 'text' ? item.fontSize : 32);
-  dom.propTextAlign.value = item.type === 'text' ? item.textAnchor : 'start';
-  dom.propFontFamily.value = item.type === 'text'
-    ? ensureFontFamilySelectOption(item.fontFamily)
+  const isInlineTextType = isInlineTextEditableElement(item);
+  const isShapeInlineTextType = isInlineTextShapeType(item?.type);
+  const fallbackFontSize = isShapeInlineTextType ? SHAPE_TEXT_FONT_SIZE_DEFAULT : TEXT_STYLE_FONT_SIZE_DEFAULT;
+  const fallbackTextAlign = isShapeInlineTextType ? 'middle' : 'start';
+  dom.propFontSize.value = String(
+    isInlineTextType
+      ? normalizeTextFontSize(item.fontSize || fallbackFontSize)
+      : 32,
+  );
+  dom.propTextAlign.value = isInlineTextType
+    ? normalizeTextAlign(item.textAnchor || fallbackTextAlign)
+    : 'start';
+  dom.propFontFamily.value = isInlineTextType
+    ? ensureFontFamilySelectOption(item.fontFamily || DEFAULT_TEXT_FONT_FAMILY)
     : ensureFontFamilySelectOption(DEFAULT_TEXT_FONT_FAMILY);
-  dom.propFontBold.checked = item.type === 'text' ? item.fontWeight === 'bold' : false;
-  dom.propFontItalic.checked = item.type === 'text' ? item.fontStyle === 'italic' : false;
+  dom.propFontBold.checked = isInlineTextType ? normalizeTextFontWeight(item.fontWeight) === 'bold' : false;
+  dom.propFontItalic.checked = isInlineTextType ? normalizeTextFontStyle(item.fontStyle) === 'italic' : false;
   dom.propTextLineSpacing.value = String(normalizeTextLineSpacing(item.lineSpacing || TEXT_LINE_SPACING_DEFAULT));
   dom.propTextLetterSpacing.value = String(normalizeTextLetterSpacing(item.letterSpacing || TEXT_LETTER_SPACING_DEFAULT));
   dom.propTextIndent.value = String(normalizeTextIndent(item.textIndent || TEXT_INDENT_DEFAULT));
@@ -4364,15 +4490,16 @@ function renderProperties() {
     dom.propText.disabled = true;
     return;
   }
-  dom.propText.value = item.text || '';
+  dom.propText.value = isInlineTextType ? (item.text || '') : '';
 }
 
 function applyPropertyFromInputs(event) {
   const selectedElements = getSelectedElementElements();
   if (!selectedElements.length) return;
-  const isTextSelection = selectedElements.length === 1 && selectedElements[0].type === 'text';
+  const isInlineTextSelection = selectedElements.length === 1 && isInlineTextEditableElement(selectedElements[0]);
   const isLineSelection = selectedElements.length === 1 && (selectedElements[0].type === 'line' || selectedElements[0].type === 'arrow');
   const isStrokeInput = event?.target === dom.propStroke;
+  const isTextInputEvent = event?.target === dom.propText;
 
   for (const item of selectedElements) {
     if (item.type !== 'svg-fragment') {
@@ -4386,16 +4513,16 @@ function applyPropertyFromInputs(event) {
       }
     }
   }
-  if (!isTextSelection && !isLineSelection) {
+  if (!isInlineTextSelection && !isLineSelection) {
     recordHistorySnapshot();
     render();
     return;
   }
 
   const item = selectedElements[0];
-  if (item.type === 'text') {
+  if (isInlineTextEditableElement(item)) {
     item.fontSize = normalizeTextFontSize(dom.propFontSize.value);
-    item.textAnchor = normalizeTextAlign(dom.propTextAlign.value || 'start');
+    item.textAnchor = normalizeTextAlign(dom.propTextAlign.value || (item.type === 'text' ? 'start' : 'middle'));
     item.fontFamily = normalizeFontFamilyInputValue(dom.propFontFamily.value || DEFAULT_TEXT_FONT_FAMILY);
     item.fontWeight = normalizeTextFontWeight(dom.propFontBold.checked ? 'bold' : 'normal');
     item.fontStyle = normalizeTextFontStyle(dom.propFontItalic.checked ? 'italic' : 'normal');
@@ -4403,10 +4530,16 @@ function applyPropertyFromInputs(event) {
     item.letterSpacing = normalizeTextLetterSpacing(dom.propTextLetterSpacing.value);
     item.textIndent = normalizeTextIndent(dom.propTextIndent.value);
     item.bulletType = normalizeTextBulletType(dom.propTextBullet.value);
+    if (isTextInputEvent) {
+      item.text = dom.propText.value;
+    }
     ensureFontFamilySelectOption(item.fontFamily);
-    syncTextElementHeightFromContent(item);
+    if (item.type === 'text') {
+      syncTextElementHeightFromContent(item);
+    } else if (isInlineTextShapeType(item.type)) {
+      normalizeShapeInlineTextProperties(item);
+    }
   }
-  if (item.type === 'text') item.text = dom.propText.value;
   recordHistorySnapshot();
   render();
 }

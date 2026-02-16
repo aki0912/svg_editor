@@ -310,6 +310,26 @@ test('最小3: テキスト編集開始時の位置ズレなし', async ({ page 
   expect(deltaY).toBeLessThan(20);
 });
 
+test('追加: 図形をダブルクリックしてテキスト入力できる', async ({ page }) => {
+  await page.locator('#add-rect').click();
+  const id = await getLastElementId(page);
+  await clickElementCenter(page, id);
+
+  const center = await getElementCenter(page, id);
+  const metrics = await getCanvasMetrics(page);
+  const centerPage = svgPointToPage(metrics, center);
+  await page.mouse.dblclick(centerPage.x, centerPage.y);
+
+  const editorSelector = '#canvas textarea.inline-textarea, #canvas textarea, #canvas [contenteditable="true"], #canvas input[type="text"]';
+  const editor = page.locator(editorSelector).first();
+  await expect(editor).toBeVisible();
+  await editor.fill('図形ダブルクリック編集');
+
+  await clickSvgPoint(page, { x: 20, y: 20 });
+  await expect.poll(async () => page.locator(editorSelector).count()).toBe(0);
+  await expect.poll(async () => await getElementText(page, id)).toContain('図形ダブルクリック編集');
+});
+
 test('最小4: Undo/Redoで移動を巻き戻し・再適用できる', async ({ page }) => {
   await page.locator('#add-rect').click();
   const id = await getLastElementId(page);
@@ -377,6 +397,49 @@ test('追加2: テキストのフォント変更が描画へ反映される', as
 
   await expect.poll(async () => await getElementFontFamily(page, id)).toContain('Meiryo');
   await expect.poll(async () => (await page.locator('#selected-label').inputValue()).trim().length).toBeGreaterThan(0);
+});
+
+test('追加2b: 図形内テキストも本文とフォントを編集できる', async ({ page }) => {
+  await page.locator('#add-rect').click();
+  const id = await getLastElementId(page);
+  await clickElementCenter(page, id);
+
+  await expect(page.locator('#prop-font-family')).toBeEnabled();
+  await expect(page.locator('#prop-text')).toBeEnabled();
+  await page.locator('#prop-text').fill('図形の本文');
+  await page.locator('#prop-font-size').fill('44');
+  await page.locator('#prop-font-family').selectOption('Meiryo, sans-serif');
+
+  await expect.poll(async () => await getElementText(page, id)).toContain('図形の本文');
+  await expect.poll(async () => await getElementFontFamily(page, id)).toContain('Meiryo');
+  await expect.poll(async () => page.evaluate((targetId) => {
+    const group = document.querySelector(`#canvas [data-element-id="${targetId}"]`);
+    const textNode = group?.querySelector('text');
+    return String(textNode?.getAttribute('font-size') || '');
+  }, id)).toBe('44');
+});
+
+test('追加2c: 揃え変更で改行が消えない', async ({ page }) => {
+  await page.locator('#add-text').click();
+  const id = await getLastElementId(page);
+
+  await clickElementCenter(page, id);
+  const center = await getElementCenter(page, id);
+  const metrics = await getCanvasMetrics(page);
+  const centerPage = svgPointToPage(metrics, center);
+  await page.mouse.dblclick(centerPage.x, centerPage.y);
+
+  const editorSelector = '#canvas textarea.inline-textarea, #canvas textarea, #canvas [contenteditable="true"], #canvas input[type="text"]';
+  const editor = page.locator(editorSelector).first();
+  await expect(editor).toBeVisible();
+  await editor.fill('1行目\n2行目');
+  await clickSvgPoint(page, { x: 20, y: 20 });
+
+  await clickElementCenter(page, id);
+  await expect.poll(async () => await getElementText(page, id)).toBe('1行目\n2行目');
+
+  await page.locator('#prop-text-align').selectOption('middle');
+  await expect.poll(async () => await getElementText(page, id)).toBe('1行目\n2行目');
 });
 
 test('追加3: プロパティ操作中に選択状態が維持される', async ({ page }) => {
@@ -563,10 +626,11 @@ test('追加13: ページ再読み込み後にlocalStorageから状態復元さ�
   await expect.poll(async () => (await getElementIds(page)).length).toBe(beforeCount);
 });
 
-test('追加14: 図形選択時はフォント系無効、テキスト選択時は有効', async ({ page }) => {
+test('追加14: 図形選択時もテキスト系プロパティを操作できる', async ({ page }) => {
   await page.locator('#add-rect').click();
-  await expect(page.locator('#prop-font-family')).toBeDisabled();
-  await expect(page.locator('#prop-font-size')).toBeDisabled();
+  await expect(page.locator('#prop-font-family')).toBeEnabled();
+  await expect(page.locator('#prop-font-size')).toBeEnabled();
+  await expect(page.locator('#prop-text')).toBeEnabled();
 
   await page.locator('#add-text').click();
   await expect(page.locator('#prop-font-family')).toBeEnabled();
